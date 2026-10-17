@@ -2,6 +2,39 @@
 
 **Agent War · DevFest 2026**
 
+### ▶ Live: **https://chainmind-y3acu7am2a-el.a.run.app**
+
+| | |
+|---|---|
+| **Dashboard** | https://chainmind-y3acu7am2a-el.a.run.app/ |
+| **API docs (OpenAPI)** | https://chainmind-y3acu7am2a-el.a.run.app/docs |
+| **MCP endpoint** | https://chainmind-y3acu7am2a-el.a.run.app/mcp — 23 tools, streamable HTTP |
+| **Source** | https://github.com/micheal-quest1/chainmind |
+
+Running on Google Cloud Run (`asia-south1`) with keys in Secret Manager, against live
+Gemini and the live Google Routes API.
+
+### Run it yourself in 3 commands
+
+```bash
+git clone https://github.com/micheal-quest1/chainmind && cd chainmind
+make install                      # venv + pinned dependencies
+cp .env.example .env              # add GEMINI_API_KEY and GOOGLE_MAPS_API_KEY (both optional)
+make run                          # http://localhost:8080
+```
+
+With no API keys at all it still runs end to end on deterministic fallbacks, so the flow
+is always demonstrable. `make help` lists every command; §3 has the full detail.
+
+### Try it in one request
+
+```bash
+curl -s localhost:8080/api/orders -H 'content-type: application/json' \
+  -d '{"text":"2 laptops and 5 usb-c cables to Anna Nagar, Chennai, urgent"}'
+```
+
+---
+
 A free-text order goes in. A dispatched shipment comes out — warehouse chosen, route
 solved against live Chennai traffic, carrier priced, stock reserved atomically,
 exceptions recovered from without a human — in **~2.6–3.7 seconds**, end to end.
@@ -192,15 +225,37 @@ Open **http://localhost:8080** for the live dashboard: pipeline stages streaming
 SSE with per-stage timings, the candidate comparison table, the Google static map of the
 chosen route, the learning curve, and the conversational copilot.
 
-### Other entry points
+### Every command
 
-```bash
-make e2e      # scripted demo: 4 orders incl. one that forces self-healing,
-              # then the feedback loop, the reflection agent and the copilot
-make bench    # latency benchmark: DB floor, per-stage, sequential vs concurrent
-make mcp      # MCP server over stdio
-make docker   # build and run the container
-```
+`make help` prints this list.
+
+| Command | What it does |
+|---|---|
+| `make install` | Create the venv and install pinned dependencies |
+| `make verify` | Check which Google APIs your keys actually reach — **run this before demoing** |
+| `make run` | Start the dashboard + API on :8080 |
+| `make test` | Unit tests (23) |
+| `make e2e` | **Demo 1** — orders, self-healing, feedback loop, copilot |
+| `make inventory` | **Demo 2** — replenishment, transfers, goods inward, returns |
+| `make bench` | Latency benchmark (the judged metric) |
+| `make smoke URL=…` | Check any running instance, local or deployed |
+| `make mcp` | Run the MCP server over stdio |
+| `make docker` | Build and run the container |
+| `make deploy` | Build and deploy to Google Cloud Run |
+| `make clean` | Drop the local database and caches |
+
+### What to click first in the dashboard
+
+1. **Overview** — the six-node network at a glance
+2. **New Order** → pick the *Cold chain* preset → watch each step appear in plain
+   English, then the table showing which warehouses were compared and why one won
+3. **Shipments** → **Confirm** a delivery and enter a late time → place the same order
+   again and the promised ETA is now higher. That is the feedback loop, visibly closed.
+4. **Inventory** → **Run auto-replenishment** → the planner moves real stock between
+   warehouses over a real Google-routed distance
+5. **New Order** → *Stock shortfall* preset → 500 laptops becomes "15 ship today,
+   485 backordered" instead of a failure
+6. **System** — model routing, span percentiles and raw traces, for engineers
 
 ### Which Google APIs to enable
 
@@ -731,28 +786,3 @@ scripts/
 
 MIT
 
----
-
-## Live deployment
-
-**https://chainmind-y3acu7am2a-el.a.run.app**
-
-| | |
-|---|---|
-| Dashboard | https://chainmind-y3acu7am2a-el.a.run.app/ |
-| API docs | https://chainmind-y3acu7am2a-el.a.run.app/docs |
-| Capabilities | https://chainmind-y3acu7am2a-el.a.run.app/api/capabilities |
-| MCP (streamable HTTP) | https://chainmind-y3acu7am2a-el.a.run.app/mcp |
-
-Running on Google Cloud Run (`asia-south1`), keys held in Secret Manager, with live
-Gemini and live Google Routes v2. Measured on the deployed instance:
-
-```
-ok=True  server=3874ms
-warehouse=Chennai Central Godown  carrier=BlueDart
-eta=47.7min  cost=Rs.176.13  route=google-routes-matrix
-```
-
-```bash
-./scripts/smoke.sh https://chainmind-y3acu7am2a-el.a.run.app
-```

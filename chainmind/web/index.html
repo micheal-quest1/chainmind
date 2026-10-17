@@ -446,6 +446,11 @@ const FRIENDLY = {
   reserve:["Stock reserved", o => o.warehouse || ""],
   packaging:["Packed", o => `${o.box||""}, ${o.weight_g||0} g${o.cold_chain?" · cold chain":""}${o.fragile?" · fragile":""}`],
   qa_vision:["Parcel inspected", o => o.notes || ""],
+  partial_fulfil:["Partially fulfilled", o => {
+    const now = (o.shipping_now||[]).map(l=>`${l.qty} × ${l.sku}`).join(", ");
+    const back = (o.backordered||[]).map(l=>`${l.qty} × ${l.sku}`).join(", ");
+    return `shipping now: ${now}${back?` · backordered: ${back}`:""}`;
+  }],
   dispatch:["Dispatched", o => `${o.carrier||""} · ETA ${Math.round(o.eta_minutes||0)} min`],
   pipeline:["System error", o => o.detail || ""],
 };
@@ -588,6 +593,12 @@ function renderOutcome(d){
       <div class="s">${esc(s.warehouse.kind)}</div></div>
     <div class="kpi"><div class="v" style="font-size:17px">${esc(s.packaging.box)}</div><div class="l">Packaging</div>
       <div class="s">${s.packaging.gross_weight_g} g${s.packaging.cold_chain?" · cold chain":""}</div></div>`;
+  if((d.backordered||[]).length){
+    $("#outcome").insertAdjacentHTML("beforeend", `<div style="grid-column:1/-1">
+      <span class="tag warn">Backordered</span>
+      <span class="muted"> ${d.backordered.map(b=>`${b.qty} × ${esc(b.sku)}`).join(", ")}
+      — not available anywhere today, raised as a supplier order.</span></div>`);
+  }
   $("#outcomeMap").innerHTML = s.route.static_map_url
     ? `<img class="map" src="${s.route.static_map_url}" alt="delivery route">` : "";
 

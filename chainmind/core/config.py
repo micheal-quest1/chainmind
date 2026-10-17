@@ -109,6 +109,21 @@ class Settings:
         }
 
 
+def silence_key_logging() -> None:
+    """Stop httpx INFO logs printing full request URLs.
+
+    httpx logs every request line verbatim, and the Geocoding and Static Maps
+    endpoints carry the key as a `?key=` query parameter - so a default-level
+    log quietly writes the API key into stdout, which on Cloud Run means it
+    lands in Cloud Logging. Routes v2 uses a header and is unaffected, but the
+    cheapest fix that covers all of them is to raise httpx's log level.
+    """
+    import logging
+
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()

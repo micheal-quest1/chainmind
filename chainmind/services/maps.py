@@ -277,21 +277,43 @@ async def route_matrix(
 
 
 def static_map_url(polyline: str | None, origin, destination) -> str | None:
-    """A shareable map image for the dashboard (no JS SDK needed)."""
+    """A keyless URL on OUR origin that renders the route.
+
+    The obvious implementation builds a maps.googleapis.com URL with `key=` in
+    the query string - but that URL ends up in the shipment JSON returned to
+    every API caller, handing the Maps key to anyone who places an order. The
+    key never leaves the server now: this returns an internal path that
+    `/api/map` proxies, and the browser only ever sees our own domain.
+    """
     s = get_settings()
     if not s.maps_api_key:
         return None
-    base = "https://maps.googleapis.com/maps/api/staticmap"
+    from urllib.parse import urlencode
+
+    q = {"o": f"{origin[0]},{origin[1]}", "d": f"{destination[0]},{destination[1]}"}
+    if polyline:
+        q["p"] = polyline
+    return f"/api/map?{urlencode(q)}"
+
+
+def build_static_map_request(origin: str, destination: str,
+                             polyline: str | None) -> tuple[str, dict[str, str]] | None:
+    """Server-side only: the real Google Static Maps URL, key included."""
+    s = get_settings()
+    if not s.maps_api_key:
+        return None
     parts = [
         "size=640x360",
         "scale=2",
-        f"markers=color:blue%7Clabel:W%7C{origin[0]},{origin[1]}",
-        f"markers=color:red%7Clabel:D%7C{destination[0]},{destination[1]}",
+        f"markers=color:blue%7Clabel:W%7C{origin}",
+        f"markers=color:red%7Clabel:D%7C{destination}",
     ]
     if polyline:
-        parts.append(f"path=weight:4%7Ccolor:0x2563ebff%7Cenc:{polyline}")
+        from urllib.parse import quote
+
+        parts.append(f"path=weight:4%7Ccolor:0x2563ebff%7Cenc:{quote(polyline, safe='')}")
     parts.append(f"key={s.maps_api_key}")
-    return f"{base}?{'&'.join(parts)}"
+    return f"https://maps.googleapis.com/maps/api/staticmap?{'&'.join(parts)}", {}
 
 
 # ================================================================================

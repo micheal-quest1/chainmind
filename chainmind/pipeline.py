@@ -84,6 +84,7 @@ class Orchestrator:
         self.repairs: list[dict[str, Any]] = []
         self.models_used: dict[str, str] = {}
         self.degraded: list[str] = []
+        self.backordered: list[dict[str, Any]] = []
         self.t0 = time.perf_counter()
 
     # ------------------------------------------------------------------ utils
@@ -421,6 +422,12 @@ class Orchestrator:
                 "tried_warehouses": sorted(tried),
                 "destination": order.get("destination"),
             }
+            # Undo this order's own partial work first. The strategies below
+            # read live availability, and a reservation left over from the
+            # previous cycle makes a warehouse look empty to the very order
+            # that reserved it - which silently backorders stock we hold.
+            logistics.release_stock(self.order_id)
+
             repair, heal_res = await crew.heal(failure, order, context, tracer=self.tracer)
             self._note_model(f"healer_c{cycle}", heal_res)
             self.repairs.append({"cycle": cycle, "failure": failure, **repair})
@@ -430,6 +437,24 @@ class Orchestrator:
                       confidence=repair.get("confidence"), model=heal_res.model)
 
             strategy = repair["strategy"]
+
+            # Safety net over a model decision. Escalating to a human while the
+            # warehouse is holding stock we could ship today is the one wrong
+            # answer here, and it is cheap to detect: if any subset is
+            # shippable, ship it and backorder the rest. The model still owns
+            # every genuinely ambiguous call; it just cannot choose to do
+            # nothing when doing something is provably possible.
+            if strategy == "escalate_human":
+                shippable, _back, site = logistics.cap_lines_to_available(order["lines"])
+                if shippable and site:
+                    self.emit("heal", "escalation_overridden",
+                              reason="stock is available to partially fulfil",
+                              warehouse=site, shippable=shippable)
+                    strategy = "partial_fulfil"
+                    repair = {**repair, "strategy": strategy,
+                              "explanation": (repair.get("explanation", "") +
+                                              " [overridden: partial fulfilment is possible]").strip()}
+                    self.repairs[-1] = {"cycle": cycle, "failure": failure, **repair}
 
             if strategy == "escalate_human":
                 logistics.release_stock(self.order_id)
@@ -442,28 +467,67 @@ class Orchestrator:
             if strategy == "downgrade_priority":
                 order["priority"] = "standard"
             elif strategy in ("partial_fulfil", "split_shipment"):
-                drop = set(repair.get("drop_skus") or fulfil.get("unfulfillable_skus") or [])
-                if strategy == "split_shipment" and not drop:
-                    # Ship the largest single-warehouse subset now; the remainder
-                    # becomes a follow-on order rather than blocking this one.
-                    drop = _skus_not_available_anywhere_together(order["lines"])
-                kept = [l for l in order["lines"] if l["sku"] not in drop]
+                # Cap each line to what one warehouse can really ship, rather
+                # than dropping whole SKUs. "500 laptops" should become "65 ship
+                # now, 435 backordered", not "order failed" - a single-line
+                # order was previously unsplittable and died here.
+                kept, backorder, site = logistics.cap_lines_to_available(order["lines"])
+                # Stock is only half the constraint - the parcel still has to be
+                # within a carrier's payload, or candidate selection finds no
+                # feasible carrier and the order dies with stock sitting right there.
+                if kept and site:
+                    kept, over_weight = logistics.cap_lines_to_parcel(kept, site)
+                    backorder += over_weight
+
+                # The healer's drop list is advisory. Honour it only while
+                # something still ships - otherwise a model naming the one
+                # shippable SKU turns a good partial shipment into a failure.
+                explicit = set(repair.get("drop_skus") or [])
+                if explicit:
+                    trimmed = [l for l in kept if l["sku"] not in explicit]
+                    if trimmed:
+                        backorder += [l for l in kept if l["sku"] in explicit]
+                        kept = trimmed
+                    else:
+                        self.emit("heal", "drop_list_ignored",
+                                  reason="dropping those SKUs would leave nothing to ship",
+                                  drop_skus=sorted(explicit))
+
                 if not kept:
                     logistics.release_stock(self.order_id)
-                    return self._result(ok=False, error="nothing shippable after repair",
-                                        extra={"repair": repair})
+                    get_db().execute(
+                        "UPDATE orders SET status='escalated', updated_at=? WHERE id=?",
+                        (time.time(), self.order_id))
+                    return self._result(
+                        ok=False, error="nothing shippable after repair",
+                        extra={"repair": repair, "backordered": backorder})
+
+                # One line per SKU: the stock cap and the parcel cap each
+                # contribute a remainder for the same SKU, and two rows saying
+                # "435" and "50" is worse than one saying "485".
+                merged: dict[str, int] = {}
+                for b in backorder:
+                    merged[b["sku"]] = merged.get(b["sku"], 0) + int(b["qty"])
+                backorder = [{"sku": k, "qty": v} for k, v in sorted(merged.items())]
+
                 order["lines"] = kept
-                order["dropped_skus"] = sorted(drop)
+                order["backordered"] = backorder
+                self.backordered = backorder
+                self.emit("partial_fulfil", "ok",
+                          shipping_now=kept, backordered=backorder, warehouse=site)
                 get_db().executemany(
-                    "DELETE FROM order_lines WHERE order_id=? AND sku=?",
-                    [(self.order_id, s) for s in drop],
+                    "INSERT INTO order_lines (order_id,sku,qty) VALUES (?,?,?)"
+                    " ON CONFLICT(order_id,sku) DO UPDATE SET qty=excluded.qty",
+                    [(self.order_id, l["sku"], l["qty"]) for l in kept],
                 )
+                for b in backorder:
+                    get_db().log_event("backorder", "recorded", order_id=self.order_id,
+                                       payload=b)
             elif strategy in ("reroute_warehouse", "switch_carrier"):
                 # Both are applied below as a planning hint; the warehouse that
                 # actually failed was already added to `tried` by the caller.
                 pass
 
-            logistics.release_stock(self.order_id)
             candidates, fulfil = await self._build_candidates(order, dest, exclude=tried)
             if not candidates:
                 failure = f"after {strategy}, still no feasible warehouse (excluded {sorted(tried)})"
@@ -517,6 +581,7 @@ class Orchestrator:
             "trace": self.tracer.summary(),
             "spans": [s.to_dict() for s in self.tracer.spans],
             "models_used": self.models_used,
+            "backordered": self.backordered,
             "degraded": self.degraded,
             "breakers": breaker_snapshot(),
             **(extra or {}),

@@ -273,7 +273,11 @@ Investigate, then return ONE repair strategy:
 - split_shipment    : no single warehouse has everything
 - downgrade_priority: express is impossible, standard is achievable
 - partial_fulfil    : ship what exists now -> list drop_skus
-- escalate_human    : nothing is shippable; say precisely what is missing
+- escalate_human    : nothing at all is shippable; say precisely what is missing
+
+Prefer `partial_fulfil` over `escalate_human` whenever ANY quantity can ship today.
+Shipping 16 of 500 now and backordering the rest is a good outcome; escalating to a
+human while stock sits in the warehouse is not.
 
 Use the tools before deciding. `explanation` max 40 words, cite real numbers."""
 

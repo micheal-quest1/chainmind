@@ -322,3 +322,39 @@ def test_stock_grid_states(db):
     items = {(i["warehouse_id"], i["sku"]): i for i in stock_grid()["items"]}
     assert items[("WH-CJB", "SKU-TSHIRT-M")]["state"] == "out_of_stock"
     assert items[("WH-MAA", "SKU-TSHIRT-M")]["state"] in ("low", "critical")
+
+
+# ============================== partial fulfilment ==============================
+def test_cap_to_available_picks_best_single_site(db):
+    """An oversized order becomes "ship what one site has, backorder the rest"."""
+    from chainmind.services.logistics import cap_lines_to_available
+
+    kept, back, site = cap_lines_to_available([{"sku": "SKU-LAPTOP-14", "qty": 500}])
+    assert site == "WH-BLR", "should pick the site that ships the most units"
+    assert kept == [{"sku": "SKU-LAPTOP-14", "qty": 65}]
+    assert back == [{"sku": "SKU-LAPTOP-14", "qty": 435}]
+    assert kept[0]["qty"] + back[0]["qty"] == 500, "units must be conserved"
+
+
+def test_cap_to_parcel_respects_carrier_payload(db):
+    """Stock availability is not the only constraint - the parcel has a weight limit."""
+    from chainmind.services.logistics import CARRIER_PROFILES, cap_lines_to_parcel
+
+    heaviest = max(p[3] for p in CARRIER_PROFILES.values())
+    kept, over = cap_lines_to_parcel([{"sku": "SKU-LAPTOP-14", "qty": 65}], "WH-BLR")
+    shipped = kept[0]["qty"] if kept else 0
+    assert shipped > 0, "a single laptop must always fit"
+    assert shipped * 1800 <= heaviest, "parcel must fit the heaviest carrier"
+    assert shipped + (over[0]["qty"] if over else 0) == 65, "units must be conserved"
+
+
+def test_parcel_cap_never_silently_drops_units(db):
+    from chainmind.services.logistics import cap_lines_to_parcel
+
+    lines = [{"sku": "SKU-CABLE-USBC", "qty": 400}, {"sku": "SKU-MONITOR-27", "qty": 10}]
+    kept, over = cap_lines_to_parcel(lines, "WH-BLR")
+    want = {l["sku"]: l["qty"] for l in lines}
+    got: dict[str, int] = {}
+    for l in kept + over:
+        got[l["sku"]] = got.get(l["sku"], 0) + l["qty"]
+    assert got == want, "every requested unit must be either shipped or backordered"

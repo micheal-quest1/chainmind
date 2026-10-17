@@ -229,6 +229,44 @@ def release_stock(order_id: str) -> dict[str, Any]:
     return {"ok": True, "released": len(allocs)}
 
 
+def cap_lines_to_parcel(lines: list[dict[str, Any]], warehouse_id: str
+                       ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Cap an order to what a single parcel can legally carry.
+
+    Stock availability is only half the constraint. 65 laptops is 117 kg and the
+    heaviest carrier in the network takes 30 kg, so an order capped purely by
+    stock still has no feasible carrier and dies at candidate selection. This
+    trims quantities to the largest carrier payload and returns the remainder
+    as backorder, which is what actually happens in a warehouse: you ship what
+    fits on the vehicle and the rest goes on the next run.
+    """
+    db = get_db()
+    budget_g = max(p[3] for p in CARRIER_PROFILES.values())  # heaviest payload
+    budget_g = int(budget_g / 1.08) - 60                     # leave room for dunnage
+
+    kept: list[dict[str, Any]] = []
+    backorder: list[dict[str, Any]] = []
+    remaining = budget_g
+
+    # Heaviest-per-unit first, so a single bulky line cannot crowd out the
+    # cheap-to-carry lines entirely.
+    def unit_weight(sku: str) -> int:
+        row = db.one("SELECT unit_weight_g FROM inventory WHERE sku=? LIMIT 1", (sku,))
+        return row["unit_weight_g"] if row else 500
+
+    for line in sorted(lines, key=lambda l: -unit_weight(l["sku"])):
+        uw = max(1, unit_weight(line["sku"]))
+        want = int(line["qty"])
+        fits = max(0, min(want, remaining // uw))
+        if fits:
+            kept.append({"sku": line["sku"], "qty": fits})
+            remaining -= fits * uw
+        if fits < want:
+            backorder.append({"sku": line["sku"], "qty": want - fits})
+
+    return kept, backorder
+
+
 # ------------------------------------------------------------------ packaging
 def plan_packaging(lines: list[dict[str, Any]], warehouse_id: str) -> dict[str, Any]:
     """Pick the cheapest box that fits the weight and respects fragility."""

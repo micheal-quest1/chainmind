@@ -66,6 +66,9 @@ async def lifespan(app: FastAPI):
     run by the parent, and `streamable_http_app()` returns 500 "task group is
     not initialized" until its session manager is running. So the parent owns it.
     """
+    from chainmind.core.config import silence_key_logging
+
+    silence_key_logging()
     t0 = time.perf_counter()
     counts = seed(get_db())
     models, probe = await asyncio.gather(llm.resolve_models(), maps.probe_apis())
@@ -541,6 +544,38 @@ async def stream(request: Request) -> StreamingResponse:
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+
+
+@app.get("/api/map", tags=["network"], include_in_schema=False)
+async def static_map(o: str, d: str, p: str | None = None):
+    """Proxy Google Static Maps so the API key never reaches the browser.
+
+    Coordinates are validated before they are forwarded, so this cannot be used
+    as an open relay to arbitrary Google endpoints.
+    """
+    def coords(v: str) -> str:
+        try:
+            lat, lng = (float(x) for x in v.split(","))
+        except (ValueError, TypeError):
+            raise HTTPException(400, "bad coordinates")
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise HTTPException(400, "coordinates out of range")
+        return f"{lat},{lng}"
+
+    built = maps.build_static_map_request(coords(o), coords(d), p)
+    if built is None:
+        raise HTTPException(503, "maps key not configured")
+    url, _ = built
+    try:
+        r = await maps.client().get(url)
+        r.raise_for_status()
+    except Exception as exc:
+        raise HTTPException(502, f"map unavailable: {type(exc).__name__}") from exc
+    from fastapi.responses import Response
+
+    return Response(content=r.content,
+                    media_type=r.headers.get("content-type", "image/png"),
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 # ---------------------------------------------------------------- dashboard
