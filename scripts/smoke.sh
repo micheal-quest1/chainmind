@@ -11,7 +11,7 @@ chk() {
   else printf '  FAIL %s\n' "$name"; fail=$((fail+1)); fi
 }
 echo "smoke testing ${BASE}"
-chk "healthz"       curl -fsS "${BASE}/healthz"
+chk "health"        curl -fsS "${BASE}/health"
 chk "readyz"        curl -fsS "${BASE}/readyz"
 chk "capabilities"  curl -fsS "${BASE}/api/capabilities"
 chk "network"       curl -fsS "${BASE}/api/network"

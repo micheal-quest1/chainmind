@@ -49,11 +49,11 @@ spec:
                   key: latest
           startupProbe:
             httpGet:
-              path: /healthz
+              path: /health
             initialDelaySeconds: 5
             periodSeconds: 5
             failureThreshold: 12
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /health
             periodSeconds: 30

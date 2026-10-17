@@ -118,5 +118,5 @@ echo "  openapi      ${URL}/docs"
 echo "  mcp (http)   ${URL}/mcp"
 echo
 say "Verifying the live deployment"
-curl -fsS "${URL}/healthz" && echo
+curl -fsS "${URL}/health" && echo
 curl -fsS "${URL}/api/capabilities" | python3 -m json.tool | head -25 || true

@@ -143,8 +143,15 @@ class DeliveryRequest(BaseModel):
 
 
 # ----------------------------------------------------------------- lifecycle
-@app.get("/healthz", tags=["ops"])
-async def healthz() -> dict[str, Any]:
+# Liveness is served on BOTH paths on purpose. Cloud Run's front end intercepts
+# the exact path "/healthz" and answers it itself with a Google 404 page - the
+# request never reaches the container - while "/healthz/" and every other path
+# route normally. That is invisible locally and breaks the health check only
+# once deployed, so "/health" is the canonical path here and "/healthz" stays
+# as an alias for Kubernetes-style probes and local tooling.
+@app.get("/health", tags=["ops"])
+@app.get("/healthz", tags=["ops"], include_in_schema=False)
+async def health() -> dict[str, Any]:
     """Liveness. Must stay cheap: no external calls."""
     return {"status": "ok", "version": get_settings().version,
             "uptime_s": round(time.time() - _boot.get("started_at", time.time()), 1)}

@@ -197,7 +197,7 @@ cp .env.example .env     # fill in your keys
    never appears in shell history or the process list, and never enters the image
 3. Grants the Cloud Run runtime service account `secretmanager.secretAccessor`
 4. Builds from source with Cloud Build and deploys to Cloud Run
-5. Curls `/healthz` and `/api/capabilities` on the live URL and prints the result
+5. Curls `/health` and `/api/capabilities` on the live URL and prints the result
 
 Override the defaults with env vars:
 
@@ -260,12 +260,52 @@ All of them inject `$PORT`, which the container honours.
 
 ### If Cloud Run rejects the deploy with `BILLING_DISABLED`
 
-This happens when a project is linked to a billing account that has no valid payment
-method — `gcloud billing projects describe` still reports `billingEnabled: true`, so the
-only visible symptom is Artifact Registry and Secret Manager returning `PERMISSION_DENIED
-... BILLING_DISABLED`. Re-link a working billing account at
-`console.cloud.google.com/billing/linkedaccount?project=<PROJECT>`, then re-run
-`./deploy.sh`. Nothing in the code needs to change.
+Almost always this means the project is linked to a **Maps-only billing account**.
+
+Google Maps Platform billing accounts are real, open, active accounts — but their
+*Enabled Google services* is `Google Maps Platform` only, with no `Google Cloud
+Platform`. The confusing part is that `gcloud billing projects describe` still reports:
+
+```
+billingEnabled: true
+```
+
+So billing looks fine, Maps and Routes calls work perfectly, and only Artifact Registry,
+Cloud Run and Secret Manager fail — with `PERMISSION_DENIED ... reason: BILLING_DISABLED`.
+
+Check which of your accounts can actually run GCP services:
+
+```bash
+gcloud billing accounts list
+```
+
+then open **console.cloud.google.com/billing** and read the **Enabled Google services**
+column. You need one that lists *Google Cloud Platform*.
+
+Fix it either way:
+
+```bash
+# Option A - point a new, isolated project at the GCP-capable account
+gcloud projects create my-chainmind --name="ChainMind"
+gcloud billing projects link my-chainmind --billing-account=XXXXXX-XXXXXX-XXXXXX
+PROJECT=my-chainmind ./deploy.sh
+
+# Option B - relink the existing project (this also moves its Maps billing)
+gcloud billing projects link EXISTING_PROJECT --billing-account=XXXXXX-XXXXXX-XXXXXX
+```
+
+Option A is safer when the existing project serves live Maps traffic.
+
+### Cloud Run intercepts `/healthz`
+
+Worth knowing before you wire a probe: Cloud Run's front end answers the exact path
+`/healthz` itself with a Google 404 page — the request never reaches your container.
+`/healthz/` (with the slash) and every other path route normally, so this is invisible
+locally and only shows up once deployed, as a health check that fails against a service
+that is actually healthy.
+
+This app therefore serves liveness on **`/health`**, with `/healthz` kept as an alias for
+Kubernetes-style probes. All the committed probe configs point at `/health`.
 
 ### Verifying a deployment
 
@@ -517,7 +557,7 @@ Interactive docs at **`/docs`** (OpenAPI).
 | `GET` | `/api/events` | Recent pipeline events |
 | `GET` | `/api/stream` | **SSE** live pipeline feed |
 | `GET` | `/api/capabilities` | Resolved models, Google API probe, quota cooldowns |
-| `GET` | `/healthz` `/readyz` | Liveness / readiness |
+| `GET` | `/health` `/readyz` | Liveness / readiness (`/healthz` is an alias) |
 | `*` | `/mcp` | MCP server (streamable HTTP) |
 
 ```bash
@@ -633,3 +673,29 @@ scripts/
 ## License
 
 MIT
+
+---
+
+## Live deployment
+
+**https://chainmind-y3acu7am2a-el.a.run.app**
+
+| | |
+|---|---|
+| Dashboard | https://chainmind-y3acu7am2a-el.a.run.app/ |
+| API docs | https://chainmind-y3acu7am2a-el.a.run.app/docs |
+| Capabilities | https://chainmind-y3acu7am2a-el.a.run.app/api/capabilities |
+| MCP (streamable HTTP) | https://chainmind-y3acu7am2a-el.a.run.app/mcp |
+
+Running on Google Cloud Run (`asia-south1`), keys held in Secret Manager, with live
+Gemini and live Google Routes v2. Measured on the deployed instance:
+
+```
+ok=True  server=3874ms
+warehouse=Chennai Central Godown  carrier=BlueDart
+eta=47.7min  cost=Rs.176.13  route=google-routes-matrix
+```
+
+```bash
+./scripts/smoke.sh https://chainmind-y3acu7am2a-el.a.run.app
+```
