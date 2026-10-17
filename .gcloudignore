@@ -1,0 +1,18 @@
+# Keep secrets and local state out of the Cloud Build upload entirely.
+# Cloud Build does NOT read .dockerignore for the source upload, so this file
+# is what actually stops .env from leaving the machine.
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+data/
+*.db
+*.db-wal
+*.db-shm
+.git/
+.gitignore
+*.log
+.DS_Store
+BRIEF.md

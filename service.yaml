@@ -1,0 +1,59 @@
+# Cloud Run service definition (declarative deploy):
+#   gcloud run services replace service.yaml --region asia-south1
+#
+# The imperative one-liner in deploy.sh does the same thing; this file exists so
+# the deployed configuration is reviewable in git rather than living in CLI flags.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: chainmind
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        # One instance: the SQLite writer and the SSE event bus are per-process,
+        # and learned policies live on the instance's disk. Scaling out means
+        # externalising both (see README "Known limits").
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "1"
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/startup-cpu-boost: "true"
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 40
+      timeoutSeconds: 300
+      containers:
+        - image: IMAGE_PLACEHOLDER
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          env:
+            - name: CHAINMIND_DB
+              value: /data/chainmind.db
+            # Keys come from Secret Manager, never from the image or the repo.
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: chainmind-gemini-key
+                  key: latest
+            - name: GOOGLE_MAPS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: chainmind-maps-key
+                  key: latest
+          startupProbe:
+            httpGet:
+              path: /healthz
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /healthz
+            periodSeconds: 30

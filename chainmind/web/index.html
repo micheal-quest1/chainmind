@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChainMind</title>
+<style>
+:root{
+  --bg:#0a0d14; --panel:#111722; --panel2:#161d2b; --line:#232c3d;
+  --fg:#e6ecf6; --dim:#8a97ad; --accent:#4f8cff; --ok:#2ecc8f; --warn:#f5a623;
+  --err:#ff5c6c; --purple:#a78bfa; --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
+a{color:var(--accent)}
+header{display:flex;align-items:center;gap:14px;padding:14px 20px;
+  border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:9}
+.logo{font-weight:700;font-size:17px;letter-spacing:-.02em}
+.logo span{color:var(--accent)}
+.tag{font-size:11px;color:var(--dim);border:1px solid var(--line);
+  padding:3px 8px;border-radius:99px;font-family:var(--mono)}
+.tag.live{color:var(--ok);border-color:#1e4d3a;background:#0f2b20}
+.tag.mock{color:var(--warn);border-color:#4d3a1e;background:#2b200f}
+.wrap{display:grid;grid-template-columns:420px 1fr;gap:16px;padding:16px;
+  max-width:1680px;margin:0 auto;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card h2{margin:0;padding:12px 16px;font-size:12px;text-transform:uppercase;
+  letter-spacing:.09em;color:var(--dim);border-bottom:1px solid var(--line);
+  display:flex;justify-content:space-between;align-items:center}
+.card .body{padding:14px 16px}
+textarea,input{width:100%;background:var(--panel2);border:1px solid var(--line);
+  color:var(--fg);border-radius:8px;padding:10px;font:inherit;resize:vertical}
+textarea:focus,input:focus{outline:none;border-color:var(--accent)}
+button{background:var(--accent);color:#fff;border:0;border-radius:8px;
+  padding:10px 16px;font:600 14px inherit;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.ghost{background:var(--panel2);border:1px solid var(--line);color:var(--fg);font-weight:500}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chip{font-size:11px;padding:5px 9px;border-radius:99px;background:var(--panel2);
+  border:1px solid var(--line);color:var(--dim);cursor:pointer}
+.chip:hover{border-color:var(--accent);color:var(--fg)}
+.stages{display:flex;flex-direction:column;gap:0;font-family:var(--mono);font-size:12px}
+.stage{display:grid;grid-template-columns:18px 1fr auto;gap:10px;padding:9px 16px;
+  border-bottom:1px solid var(--line);align-items:start}
+.stage:last-child{border-bottom:0}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim);margin-top:6px}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn);
+  box-shadow:0 0 0 3px rgba(245,166,35,.15)} .dot.err{background:var(--err)}
+.dot.run{background:var(--accent);animation:p 1s infinite}
+@keyframes p{50%{opacity:.25}}
+.sname{color:var(--fg);font-weight:600}
+.sdetail{color:var(--dim);font-size:11px;word-break:break-word;margin-top:2px}
+.sms{color:var(--accent);font-variant-numeric:tabular-nums;font-size:11px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px}
+.kpi .v{font-size:21px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.kpi .l{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;margin-top:3px}
+.kpi.ok .v{color:var(--ok)} .kpi.acc .v{color:var(--accent)}
+.kpi.warn .v{color:var(--warn)} .kpi.pur .v{color:var(--purple)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--dim);font-weight:600;font-size:10px;
+  text-transform:uppercase;letter-spacing:.07em;padding:7px 10px;border-bottom:1px solid var(--line)}
+td{padding:7px 10px;border-bottom:1px solid var(--line);font-family:var(--mono)}
+tr:last-child td{border-bottom:0}
+.best{color:var(--ok);font-weight:700}
+.tabs{display:flex;gap:4px;padding:10px 16px 0}
+.tab{padding:7px 13px;border-radius:8px 8px 0 0;font-size:12px;color:var(--dim);
+  cursor:pointer;border:1px solid transparent}
+.tab.on{background:var(--panel2);color:var(--fg);border-color:var(--line);border-bottom-color:var(--panel2)}
+.pane{display:none;padding:14px 16px} .pane.on{display:block}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px;
+  overflow:auto;max-height:420px;font-family:var(--mono);font-size:11px;color:var(--dim);margin:0}
+.msg{margin-bottom:10px;padding:10px 12px;border-radius:10px;max-width:90%;white-space:pre-wrap;font-size:13px}
+.msg.u{background:var(--accent);color:#fff;margin-left:auto}
+.msg.a{background:var(--panel2);border:1px solid var(--line)}
+.msg .tools{font-family:var(--mono);font-size:10px;color:var(--purple);margin-top:6px}
+#chatlog{max-height:320px;overflow-y:auto;margin-bottom:10px}
+.bar{height:5px;background:var(--panel2);border-radius:3px;overflow:hidden;margin-top:5px}
+.bar i{display:block;height:100%;background:var(--accent)}
+.muted{color:var(--dim);font-size:12px}
+.err{color:var(--err)} .ok{color:var(--ok)} .warnc{color:var(--warn)}
+img.map{width:100%;border-radius:8px;border:1px solid var(--line);margin-top:10px}
+@media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Chain<span>Mind</span></div>
+  <div class="tag">autonomous supply chain</div>
+  <div class="tag" id="capLlm">llm …</div>
+  <div class="tag" id="capMaps">maps …</div>
+  <div class="tag" id="capMcp">mcp …</div>
+  <div style="margin-left:auto" class="tag" id="conn">connecting…</div>
+</header>
+
+<div class="wrap">
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card">
+      <h2>Order intake <span class="muted" id="intakeHint">free text</span></h2>
+      <div class="body">
+        <textarea id="order" rows="3" placeholder="Describe an order in plain English…">2 laptops and 5 usb-c cables to Anna Nagar, Chennai — urgent, hospital procurement</textarea>
+        <div class="chips">
+          <div class="chip" data-o="2 laptops and 5 usb-c cables to Anna Nagar, Chennai — urgent, hospital procurement">Express · Chennai</div>
+          <div class="chip" data-o="Send 1 ergonomic chair and 2 monitors to Koramangala, Bengaluru. No rush.">Bulky · Bengaluru</div>
+          <div class="chip" data-o="URGENT: 10 vaccine kits to Apollo Hospital, Hyderabad. Cold chain required.">Cold chain</div>
+          <div class="chip" data-o="500 laptops to Mumbai tomorrow">Forces self-heal</div>
+          <div class="chip" data-o="3 t-shirts and 1 keyboard to Gandhipuram, Coimbatore">Darkstore</div>
+        </div>
+        <div class="row">
+          <button id="run">Run pipeline</button>
+          <button class="ghost" id="runx3">Benchmark ×3</button>
+          <button class="ghost" id="reset">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Ops copilot <span class="muted">conversational agent</span></h2>
+      <div class="body">
+        <div id="chatlog"><div class="msg a">Ask me anything about the network. I call the same tools the pipeline uses — I can check stock, quote routes, or ship an order outright.</div></div>
+        <input id="chatin" placeholder="e.g. which warehouse has vaccine kits?">
+        <div class="row"><button id="send">Send</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card">
+      <h2>Pipeline execution <span class="muted" id="totalMs"></span></h2>
+      <div class="stages" id="stages"><div class="stage"><div></div><div class="muted">Run an order to see the agent pipeline execute live.</div><div></div></div></div>
+    </div>
+
+    <div class="card">
+      <h2>Decision</h2>
+      <div class="body"><div class="grid" id="kpis"><div class="muted">No shipment yet.</div></div><div id="mapWrap"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="tabs">
+        <div class="tab on" data-t="cand">Candidates</div>
+        <div class="tab" data-t="learn">Feedback loop</div>
+        <div class="tab" data-t="perf">Performance</div>
+        <div class="tab" data-t="raw">Raw trace</div>
+      </div>
+      <div class="pane on" id="p-cand"><div class="muted">Warehouses the planner compared will appear here.</div></div>
+      <div class="pane" id="p-learn">
+        <div class="row" style="margin:0 0 12px">
+          <button class="ghost" id="simDeliver">Simulate delivery outcome</button>
+          <button class="ghost" id="reflect">Run reflection agent</button>
+        </div>
+        <div id="learnBody" class="muted">Dispatch an order, then record a delivery to close the loop.</div>
+      </div>
+      <div class="pane" id="p-perf"><div class="muted">Loading…</div></div>
+      <div class="pane" id="p-raw"><pre id="rawJson">{}</pre></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s??"").replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+let last = null, lastShip = null;
+
+// ---------- capabilities ----------
+fetch('/api/capabilities').then(r=>r.json()).then(c=>{
+  const live = c.llm === 'gemini';
+  $('#capLlm').textContent = 'llm: ' + (live ? (c.resolved_models?.planner||'gemini') : 'mock');
+  $('#capLlm').className = 'tag ' + (live?'live':'mock');
+  const m = c.google_apis||{};
+  const mapsLive = m.routes_v2 === true;
+  $('#capMaps').textContent = 'maps: ' + (mapsLive ? 'routes v2 live' : 'fallback');
+  $('#capMaps').className = 'tag ' + (mapsLive?'live':'mock');
+  $('#capMcp').textContent = 'mcp: ' + (c.mcp?.tools||0) + ' tools';
+  $('#capMcp').className = 'tag live';
+}).catch(()=>{});
+
+// ---------- live stream ----------
+const ev = new EventSource('/api/stream');
+ev.onopen = () => { $('#conn').textContent = 'live'; $('#conn').className='tag live'; };
+ev.onerror = () => { $('#conn').textContent = 'reconnecting'; $('#conn').className='tag mock'; };
+ev.addEventListener('stage', e => addStage(JSON.parse(e.data)));
+
+const STATE = s => /fail|reject|error|fatal|exhaust|blocked|none/i.test(s) ? 'err'
+  : /heal|investig|override|replay|needs/i.test(s) ? 'warn'
+  : /ok|accepted|recovered|pass|dispatch/i.test(s) ? 'ok' : 'run';
+
+function addStage(d){
+  const box = $('#stages');
+  if (box.dataset.fresh !== '1'){ box.innerHTML=''; box.dataset.fresh='1'; }
+  const det = Object.entries(d.detail||{})
+    .filter(([k,v]) => v!==null && v!=='' && !(Array.isArray(v)&&!v.length) && k!=='order_id')
+    .map(([k,v]) => `${k}=${typeof v==='object'?JSON.stringify(v):v}`).join('  ');
+  const el = document.createElement('div');
+  el.className='stage';
+  el.innerHTML = `<div class="dot ${STATE(d.status)}"></div>
+    <div><div class="sname">${esc(d.stage)} · <span style="color:var(--dim);font-weight:400">${esc(d.status)}</span></div>
+    ${det?`<div class="sdetail">${esc(det)}</div>`:''}</div>
+    <div class="sms">${d.elapsed_ms.toFixed(0)}ms</div>`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+// ---------- run ----------
+async function run(text){
+  $('#run').disabled = true;
+  $('#stages').innerHTML=''; $('#stages').dataset.fresh='0';
+  $('#totalMs').textContent='running…';
+  const t0 = performance.now();
+  try{
+    const r = await fetch('/api/orders',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({text})});
+    const d = await r.json();
+    last = d; lastShip = d.shipment?.shipment_id || null;
+    render(d, performance.now()-t0);
+    return d;
+  } catch(e){ $('#totalMs').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  finally{ $('#run').disabled=false; }
+}
+
+function render(d, wall){
+  $('#totalMs').innerHTML = `server ${d.total_ms.toFixed(0)}ms · wall ${wall.toFixed(0)}ms`
+    + (d.ok?'':` · <span class="err">${esc(d.error)}</span>`);
+  $('#rawJson').textContent = JSON.stringify(d,null,2);
+
+  const s = d.shipment, k = $('#kpis');
+  if (s){
+    const ms = d.trace?.ms_by_kind||{};
+    k.innerHTML = `
+      <div class="kpi ok"><div class="v">${s.carrier}</div><div class="l">carrier</div></div>
+      <div class="kpi acc"><div class="v">${s.eta_minutes}m</div><div class="l">promised eta</div></div>
+      <div class="kpi"><div class="v">₹${s.cost_inr}</div><div class="l">total cost</div></div>
+      <div class="kpi"><div class="v">${s.route.distance_km}km</div><div class="l">${s.route.source.includes('google')?'google route':'fallback route'}</div></div>
+      <div class="kpi pur"><div class="v">${d.total_ms.toFixed(0)}ms</div><div class="l">end to end</div></div>
+      <div class="kpi"><div class="v">${(ms.agent||0).toFixed(0)}ms</div><div class="l">agent time</div></div>
+      <div class="kpi"><div class="v">${s.warehouse.id}</div><div class="l">${esc(s.warehouse.city)}</div></div>
+      <div class="kpi"><div class="v">${s.packaging.box}</div><div class="l">${s.packaging.gross_weight_g}g${s.packaging.cold_chain?' · cold':''}</div></div>`;
+    $('#mapWrap').innerHTML = s.route.static_map_url
+      ? `<img class="map" src="${s.route.static_map_url}" alt="route">` : '';
+  } else {
+    k.innerHTML = `<div class="err">${esc(d.error||'no shipment')}</div>`;
+    $('#mapWrap').innerHTML='';
+  }
+
+  if (d.plan) {
+    const p = d.plan;
+    $('#p-cand').innerHTML = `
+      <div class="muted" style="margin-bottom:10px"><b style="color:var(--fg)">Planner rationale:</b> ${esc(p.rationale||'')}
+      ${(p.applied_policies||[]).length?`<br><b style="color:var(--purple)">Applied learned policies:</b> ${esc(p.applied_policies.join(', '))}`:''}
+      ${(p.risk_flags||[]).length?`<br><b class="warnc">Risks:</b> ${esc(p.risk_flags.join(', '))}`:''}</div>
+      <table><tr><th>warehouse</th><th>distance</th><th>drive</th><th>carrier</th><th>eta</th><th>cost</th></tr>
+      ${(d.considered||[]).map(c=>`<tr${c.warehouse_id===s?.warehouse.id?' class="best"':''}>
+        <td>${c.warehouse_id}${c.warehouse_id===s?.warehouse.id?' ✓':''}</td><td>${c.distance_km}km</td>
+        <td>${c.drive_minutes}m</td><td>${c.best_carrier}</td><td>${c.eta_minutes}m</td>
+        <td>₹${c.cost_inr}</td></tr>`).join('')}</table>`;
+  }
+  if ((d.repairs||[]).length){
+    $('#p-cand').innerHTML += `<div style="margin-top:12px" class="muted">
+      <b class="warnc">Self-healing:</b> ${d.repairs.map(r=>`${esc(r.strategy)} — ${esc(r.explanation||'')}`).join('<br>')}</div>`;
+  }
+  loadPerf();
+}
+
+// ---------- tabs ----------
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
+  t.classList.add('on'); $('#p-'+t.dataset.t).classList.add('on');
+  if (t.dataset.t==='perf') loadPerf();
+  if (t.dataset.t==='learn') loadLearn();
+});
+
+async function loadPerf(){
+  const m = await (await fetch('/api/metrics')).json();
+  const p = m.percentiles_ms||{};
+  const rows = Object.entries(p).sort((a,b)=>b[1].p50-a[1].p50);
+  const mx = Math.max(1,...rows.map(r=>r[1].p95));
+  $('#p-perf').innerHTML = `
+    <div class="grid" style="margin-bottom:12px">
+      <div class="kpi acc"><div class="v">${m.totals.orders}</div><div class="l">orders</div></div>
+      <div class="kpi ok"><div class="v">${m.totals.shipments}</div><div class="l">shipments</div></div>
+      <div class="kpi"><div class="v">${m.totals.delivered}</div><div class="l">delivered</div></div>
+      <div class="kpi pur"><div class="v">${m.totals.spans}</div><div class="l">traced spans</div></div>
+    </div>
+    <table><tr><th>span</th><th>p50</th><th>p95</th><th>p99</th><th style="width:28%">relative</th></tr>
+    ${rows.map(([n,v])=>`<tr><td>${esc(n)}</td><td>${v.p50}</td><td>${v.p95}</td><td>${v.p99}</td>
+      <td><div class="bar"><i style="width:${Math.min(100,v.p95/mx*100)}%"></i></div></td></tr>`).join('')}</table>
+    <div class="muted" style="margin-top:10px">Circuit breakers: ${
+      (m.breakers||[]).map(b=>`${esc(b.name)}=<span class="${b.state==='closed'?'ok':'err'}">${b.state}</span>`).join(' · ')||'none tripped'}</div>`;
+}
+
+async function loadLearn(){
+  const f = await (await fetch('/api/feedback')).json();
+  const pol = Object.entries(f.active_policies||{});
+  $('#learnBody').innerHTML = `
+    <div class="grid" style="margin-bottom:12px">
+      <div class="kpi acc"><div class="v">${f.points.length}</div><div class="l">outcomes recorded</div></div>
+      <div class="kpi ${f.improving?'ok':''}"><div class="v">${f.mean_abs_error_pct??'—'}%</div><div class="l">mean eta error</div></div>
+      <div class="kpi"><div class="v">${f.first_3_mean_error_pct??'—'}%</div><div class="l">first 3</div></div>
+      <div class="kpi ${f.improving?'ok':'warn'}"><div class="v">${f.last_3_mean_error_pct??'—'}%</div><div class="l">last 3 ${f.improving?'↓':''}</div></div>
+    </div>
+    <table><tr><th>carrier</th><th>shipments</th><th>on time</th><th>learned eta bias</th><th>damage</th></tr>
+    ${(f.carrier_bias||[]).map(c=>`<tr><td>${c.carrier}</td><td>${c.shipments}</td>
+      <td>${c.shipments?Math.round(c.on_time/c.shipments*100)+'%':'—'}</td>
+      <td class="${c.eta_bias>1.05?'warnc':c.eta_bias<0.95?'ok':''}">${c.eta_bias.toFixed(3)}×</td>
+      <td>${(c.damage_rate*100).toFixed(0)}%</td></tr>`).join('')}</table>
+    <div style="margin-top:12px"><b style="font-size:12px;color:var(--purple)">LEARNED POLICIES (fed into every future plan)</b>
+    ${pol.length?pol.map(([k,v])=>`<div class="muted" style="margin-top:6px">
+      <span style="font-family:var(--mono);color:var(--accent)">${esc(k)}</span> — ${esc(v.value.rule||'')}
+      <span style="opacity:.6">(conf ${v.confidence.toFixed(2)}, n=${v.samples})</span></div>`).join('')
+      :'<div class="muted" style="margin-top:6px">None yet — record 2+ deliveries then run reflection.</div>'}</div>`;
+}
+
+$('#simDeliver').onclick = async () => {
+  if (!lastShip) return alert('Dispatch an order first.');
+  const promised = last?.shipment?.eta_minutes || 60;
+  const actual = +(promised * (1.15 + Math.random()*0.5)).toFixed(1); // deliberately late
+  const r = await (await fetch('/api/deliveries',{method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify({shipment_id:lastShip, actual_minutes:actual})})).json();
+  alert(`Delivery recorded.\npromised ${r.predicted_minutes}m, actual ${r.actual_minutes}m (${r.error_pct>0?'+':''}${r.error_pct}%)\n`
+    + `${r.carrier} ETA bias ${r.eta_bias.before} -> ${r.eta_bias.after}\nThis changes the next order's carrier choice.`);
+  loadLearn();
+};
+$('#reflect').onclick = async () => {
+  $('#reflect').disabled=true; $('#reflect').textContent='reflecting…';
+  const r = await (await fetch('/api/reflect',{method:'POST'})).json();
+  $('#reflect').disabled=false; $('#reflect').textContent='Run reflection agent';
+  alert(r.skipped ? r.skipped : `${r.policies_written?.length||0} policies written by ${r.model}\n\n${r.summary||''}`);
+  loadLearn();
+};
+
+// ---------- chat ----------
+async function send(){
+  const t = $('#chatin').value.trim(); if(!t) return;
+  $('#chatin').value=''; $('#send').disabled=true;
+  $('#chatlog').insertAdjacentHTML('beforeend', `<div class="msg u">${esc(t)}</div>`);
+  $('#chatlog').insertAdjacentHTML('beforeend', `<div class="msg a" id="thinking">…</div>`);
+  $('#chatlog').scrollTop = 1e9;
+  try{
+    const r = await (await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({message:t})})).json();
+    const tools = (r.tool_calls||[]).map(c=>c.tool);
+    $('#thinking').outerHTML = `<div class="msg a">${esc(r.reply)}
+      ${tools.length?`<div class="tools">↳ called ${esc(tools.join(' → '))} · ${r.turns} turns · ${r.latency_ms}ms · ${esc(r.model)}</div>`:''}</div>`;
+  }catch(e){ $('#thinking').outerHTML = `<div class="msg a err">${esc(e.message)}</div>`; }
+  $('#send').disabled=false; $('#chatlog').scrollTop=1e9;
+}
+$('#send').onclick = send;
+$('#chatin').addEventListener('keydown', e => { if(e.key==='Enter') send(); });
+
+// ---------- controls ----------
+$('#run').onclick = () => run($('#order').value.trim());
+$('#reset').onclick = () => { $('#stages').innerHTML=''; $('#stages').dataset.fresh='0';
+  $('#kpis').innerHTML='<div class="muted">Cleared.</div>'; $('#mapWrap').innerHTML=''; };
+$('#runx3').onclick = async () => {
+  const b=$('#runx3'); b.disabled=true; const times=[];
+  for (let i=0;i<3;i++){ const d = await run($('#order').value.trim()); if(d) times.push(d.total_ms); }
+  b.disabled=false;
+  if(times.length) alert(`3 runs (ms): ${times.map(t=>t.toFixed(0)).join(', ')}\nbest ${Math.min(...times).toFixed(0)}ms · mean ${(times.reduce((a,c)=>a+c,0)/times.length).toFixed(0)}ms`);
+};
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => { $('#order').value = c.dataset.o; });
+loadPerf();
+</script>
+</body>
+</html>

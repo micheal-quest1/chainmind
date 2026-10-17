@@ -1,0 +1,13 @@
+# Pinned to the versions this project was built and verified against.
+# Note: mcp 2.x requires starlette>=1.x, which in turn requires fastapi>=0.143.
+# Older fastapi pins fail at import with "Router.__init__() got an unexpected
+# keyword argument 'on_startup'".
+fastapi==0.143.3
+starlette==1.8.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+httpx[http2]==0.28.1
+google-genai==2.31.0
+mcp==2.3.0
+python-dotenv==1.0.1
+python-multipart==0.0.20
