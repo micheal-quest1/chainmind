@@ -238,6 +238,14 @@ pre{background:var(--surface2);border:1px solid var(--line);border-radius:8px;pa
                 <div class="chip" data-o="500 laptops to Bandra, Mumbai tomorrow">Stock shortfall</div>
                 <div class="chip" data-o="3 t-shirts and 1 keyboard to Gandhipuram, Coimbatore">Small · Coimbatore</div>
               </div>
+              <div class="field" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+                <label class="fl">Parcel photo at the packing station <span style="font-weight:400;color:var(--faint)">— optional</span></label>
+                <input type="file" id="parcelPhoto" accept="image/*" style="padding:7px">
+                <div class="faint" style="margin-top:5px">Attach a photo and the inspection agent
+                  checks it for damage and reads the shipping label before dispatch. A damaged
+                  parcel is blocked and the stock released.</div>
+                <div id="photoPreview"></div>
+              </div>
               <div class="row mt">
                 <button class="btn" id="placeOrder">Place order</button>
                 <button class="ghost" id="clearOrder">Clear</button>
@@ -445,7 +453,14 @@ const FRIENDLY = {
   heal:["Resolving a problem", o => o.explanation || o.failure || ""],
   reserve:["Stock reserved", o => o.warehouse || ""],
   packaging:["Packed", o => `${o.box||""}, ${o.weight_g||0} g${o.cold_chain?" · cold chain":""}${o.fragile?" · fragile":""}`],
-  qa_vision:["Parcel inspected", o => o.notes || ""],
+  qa_vision:["Parcel photo inspected", o => {
+    const bits = [];
+    if(o.damage != null) bits.push(o.damage ? "damage found" : "no damage");
+    if(o.label_readable != null) bits.push(o.label_readable ? "label readable" : "label unreadable");
+    if(o.extracted_text) bits.push(`label reads “${String(o.extracted_text).slice(0,40)}”`);
+    if(o.notes) bits.push(o.notes);
+    return bits.join(" · ");
+  }],
   partial_fulfil:["Partially fulfilled", o => {
     const now = (o.shipping_now||[]).map(l=>`${l.qty} × ${l.sku}`).join(", ");
     const back = (o.backordered||[]).map(l=>`${l.qty} × ${l.sku}`).join(", ");
@@ -559,7 +574,18 @@ async function placeOrder(){
   $("#procTime").textContent = "running…";
   $("#outcomeCard").style.display = "none"; $("#compareCard").style.display = "none";
   try{
-    const d = await post("/api/orders", {text});
+    const file = $("#parcelPhoto").files[0];
+    let d;
+    if(file){
+      const fd = new FormData();
+      fd.append("text", text);
+      fd.append("photo", file);
+      const r = await fetch("/api/orders/with-photo", {method:"POST", body:fd});
+      if(!r.ok) throw new Error((await r.text()).slice(0,180));
+      d = await r.json();
+    } else {
+      d = await post("/api/orders", {text});
+    }
     LAST = d;
     $("#procTime").textContent = `completed in ${(d.total_ms/1000).toFixed(1)} s`;
     $("#rawJson").textContent = JSON.stringify(d, null, 2);
@@ -593,6 +619,13 @@ function renderOutcome(d){
       <div class="s">${esc(s.warehouse.kind)}</div></div>
     <div class="kpi"><div class="v" style="font-size:17px">${esc(s.packaging.box)}</div><div class="l">Packaging</div>
       <div class="s">${s.packaging.gross_weight_g} g${s.packaging.cold_chain?" · cold chain":""}</div></div>`;
+  if(d.qa){
+    const q = d.qa, bad = q.verdict !== "pass";
+    $("#outcome").insertAdjacentHTML("beforeend", `<div style="grid-column:1/-1">
+      <span class="tag ${bad?"crit":"ok"}">Parcel QA: ${esc(q.verdict)}</span>
+      <span class="muted"> ${esc(q.notes||"")}
+      ${q.extracted_text?` · label: “${esc(q.extracted_text).slice(0,60)}”`:""}</span></div>`);
+  }
   if((d.backordered||[]).length){
     $("#outcome").insertAdjacentHTML("beforeend", `<div style="grid-column:1/-1">
       <span class="tag warn">Backordered</span>
@@ -838,7 +871,15 @@ async function loadSystem(){
 
 /* ================= wiring ================= */
 $("#placeOrder").onclick = placeOrder;
-$("#clearOrder").onclick = () => { $("#orderText").value = ""; };
+$("#clearOrder").onclick = () => {
+  $("#orderText").value = ""; $("#parcelPhoto").value = ""; $("#photoPreview").innerHTML = "";
+};
+$("#parcelPhoto").onchange = e => {
+  const f = e.target.files[0];
+  $("#photoPreview").innerHTML = f
+    ? `<img class="map" style="max-width:220px;margin-top:8px" src="${URL.createObjectURL(f)}" alt="parcel">`
+    : "";
+};
 $("#send").onclick = send;
 $("#chatin").addEventListener("keydown", e => { if(e.key === "Enter") send(); });
 $("#refresh").onclick = () => { loadCaps(); loadOverview();

@@ -94,7 +94,9 @@ Then it learns from what actually happened and plans the next one differently.
 
 ## Table of contents
 
+0. [Requirements compliance](#0-requirements-compliance)
 1. [What it does](#1-what-it-does)
+1a. [Worked example: how a request becomes a shipment](#1a-worked-example-how-a-request-becomes-a-shipment)
 2. [Why it is fast](#2-why-it-is-fast-the-judged-metric)
 3. [Run it in 3 minutes](#3-run-it-in-3-minutes)
 4. [Deploy](#4-deploy)
@@ -108,6 +110,45 @@ Then it learns from what actually happened and plans the next one differently.
 12. [Benchmarks](#12-benchmarks-measured-not-estimated)
 13. [Known limits](#13-known-limits-honest-list)
 14. [Repo map](#14-repo-map)
+
+---
+
+## 0. Requirements compliance
+
+Every item from the brief, and exactly where it is implemented. Nothing in this table is
+aspirational — each row was executed against the live deployment.
+
+| Requirement | Status | Where |
+|---|---|---|
+| Logistics handler, supply chain **fully automated** | ✅ | Order → triage → origin selection → packaging → shipping, plus inbound, replenishment and returns. [§1](#1-what-it-does), [§1a](#1a-worked-example-how-a-request-becomes-a-shipment) |
+| Godown / storehouse / packaging → shipping | ✅ | 6 nodes typed `godown` / `storehouse` / `darkstore`; `plan_packaging()` → `dispatch_shipment()`; inter-node transfers in `replenishment.py` |
+| **MCP integration** | ✅ | 23 tools, **stdio + streamable HTTP**. Live at `/mcp`. [§6](#6-mcp-integration) |
+| **Multimodal agents** | ✅ | Vision agent inspects a parcel photo for damage and OCRs the shipping label; it can **block dispatch**. In the dashboard under *New Order → Parcel photo*, or `POST /api/orders/with-photo` |
+| **Multi-model agents** | ✅ | 4 tiers across 7 agents, each on the cheapest model that works, with quota-aware failover. [§5](#5-the-agents) |
+| **Conversational agent** | ✅ | Ops assistant that *acts* — it calls the same tools the pipeline does (ship an order, move stock, confirm a delivery). Dashboard → *Assistant* |
+| **API calls** | ✅ | 25 REST endpoints + OpenAPI at `/docs` |
+| **Google products** | ✅ | Gemini, Routes API v2 (compute / matrix / waypoint optimisation), Geocoding, Address Validation, Static Maps, Cloud Run, Secret Manager, Cloud Build. [§9](#9-google-services-used) |
+| **Google APIs for shortest path** | ✅ | `computeRouteMatrix` for origin selection; `optimizeWaypointOrder` solves true multi-drop TSP at `POST /api/multidrop` |
+| **Fast DB** | ✅ | SQLite WAL in-process — measured **1.8 µs** reads. [§10](#10-data-model) |
+| **Feedback loop** | ✅ | Two tiers: statistical ETA bias on every delivery, plus a reflection agent writing policies the planner reads back. Provable on stage. [§8](#8-the-feedback-loop-closed-and-provable) |
+| **Self-healing agents** | ✅ | Four layers: retry, circuit breakers, model capability/quota negotiation, and a repair agent with 6 strategies. [§7](#7-self-healing) |
+| **Fastest end-to-end flow** | ✅ | **2.6–4.5 s** including two Gemini calls. [§2](#2-why-it-is-fast-the-judged-metric), [§12](#12-benchmarks-measured-not-estimated) |
+| **Not half-baked — A to Z** | ✅ | This README, `make help`, two runnable demos, 23 tests, a smoke script, one-command deploy |
+| **GitHub repo + README** | ✅ | You are reading it |
+
+### One honest note on "Agent SDK"
+
+The brief lists *Agent SDK* as a tool set. This project uses the **Google Gen AI SDK**
+(`google-genai`) and implements its own agent runtime on top of it — model routing,
+schema-constrained output, a traced multi-turn tool loop with parallel tool execution,
+retries, circuit breakers and quota failover — rather than adopting a pre-built agent
+framework.
+
+That was a deliberate call, for the judged metric: a generic agent framework runs a
+ReAct-style loop of 6–10 round trips per decision, and the hot path here needs two. It
+also let us fix things a framework would have hidden — the thinking-config syntax change
+between Gemini 2.x and 3.x, and per-model daily quota failover. The runtime is
+`chainmind/agents/llm.py`, ~380 lines, and the agents are declarative on top of it.
 
 ---
 
@@ -166,6 +207,79 @@ Shipments, Stock Transfers, Exceptions, Assistant. Pipeline stages are shown in
 operational language ("Warehouse & carrier chosen", not `agent.planner`), and the
 engineering detail — model routing, span percentiles, raw traces — lives behind a
 separate **System** tab so it is available without being in an operator's way.
+
+## 1a. Worked example: how a request becomes a shipment
+
+A hospital procurement officer types one sentence. Nothing else is configured — no
+warehouse is picked for them, no address is on file.
+
+> *"2 laptops and 5 usb-c cables to Anna Nagar, Chennai — urgent, hospital procurement"*
+
+### Step 1 — Work out where it is going (the destination)
+
+The triage agent pulls the delivery address out of the sentence and classifies the order
+as `express` (the words *urgent* and *hospital*). The address string then goes to Google
+**Address Validation**, falling back to **Geocoding**:
+
+```
+"Anna Nagar, Chennai"  →  Anna Nagar, Chennai, Tamil Nadu, India
+                          13.0849557, 80.2101342   deliverable
+```
+
+If the address came back `undeliverable`, the order is stopped here — before a single
+unit of stock is touched.
+
+### Step 2 — Work out where it ships *from* (the origin)
+
+**This is the part that is decided, not configured.** There is no "default warehouse".
+The origin is derived per order, in four stages:
+
+1. **Who can actually ship it?** A single indexed query finds warehouses holding *every*
+   line, using `available = on_hand − reserved`. A warehouse with 2 laptops reserved for
+   someone else does not qualify. If no single site covers the order, the system says so
+   explicitly rather than quietly splitting.
+2. **How far is each one, really?** One Google `computeRouteMatrix` call prices *all*
+   surviving candidates against the destination, traffic-aware — road distance and live
+   drive time, not straight-line distance.
+3. **What would each one cost and take?** For each candidate we compute packaging (box
+   size from real unit weights, bubble wrap, gel packs) and quote every carrier, with each
+   carrier's ETA corrected by its **learned** historical bias.
+4. **Pick one.** The planner agent chooses the (warehouse, carrier) pair against the
+   order's priority, then a code critic validates it against hard constraints.
+
+Real output from this order:
+
+| Candidate origin | Road distance | Live drive | Total ETA | Cost | Best carrier |
+|---|---|---|---|---|---|
+| **WH-MAA** Chennai | **8.5 km** | 31.5 min | **47.2 min** | **₹177** | BlueDart |
+| WH-BLR Bengaluru | 318.1 km | 424.0 min | 417.0 min | ₹920 | BlueDart |
+| WH-BOM Mumbai | 1,273.9 km | 1,456.4 min | 1,494.8 min | ₹3,214 | BlueDart |
+| WH-DEL Delhi | 2,213.3 km | 2,337.4 min | 2,507.8 min | ₹5,469 | BlueDart |
+
+> **Chosen: WH-MAA (Chennai Central Godown).** The planner's own words:
+> *"Priority express requires minimum total ETA. WH-MAA with BlueDart gives pack 4.8m +
+> carrier 42.4m = 47.2m, faster than Delhivery 48.0m."*
+
+Note what the origin choice is **not**: it is not "nearest warehouse". Change the order to
+`SKU-VACCINE-KIT` and Chennai drops out on cold-chain capability; change it to 500 laptops
+and Chennai drops out on stock. Make the order `standard` instead of `urgent` and the
+planner optimises cost instead of time, which can select a further, cheaper node.
+
+### Step 3 — Commit it
+
+Stock is reserved at WH-MAA in one atomic transaction, the parcel is packed
+(`BOX-M`, 4,500 g, bubble-wrapped — laptops are flagged fragile), optionally photographed
+and inspected by the vision agent, and dispatched to BlueDart.
+
+**Total: 4.5 seconds**, two Gemini calls, one Google route-matrix call.
+
+### Step 4 — Learn from it
+
+When the delivery is confirmed at, say, 61 minutes against a promised 47, BlueDart's
+`eta_bias` moves from `1.00` to `1.12`. The *next* Anna Nagar order quotes BlueDart at
+~53 minutes instead of 47 — the same route, a more honest promise.
+
+---
 
 ## 2. Why it is fast (the judged metric)
 
