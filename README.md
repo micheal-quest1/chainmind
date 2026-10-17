@@ -242,15 +242,36 @@ committed.
 
 ### Running it anywhere else
 
-The image is a plain Dockerfile with no Cloud Run coupling:
+The image is a plain Dockerfile with no Cloud Run coupling, and configs for two other
+hosts are committed:
 
 ```bash
 docker build -t chainmind .
 docker run -p 8080:8080 --env-file .env -v chainmind-data:/data chainmind
 ```
 
-Railway, Render and Fly all accept it as-is; they inject `$PORT`, which the container
-honours.
+| Host | Config | Steps |
+|---|---|---|
+| **Railway** | `railway.json` | New Project → Deploy from GitHub repo → add `GEMINI_API_KEY` + `GOOGLE_MAPS_API_KEY` under Variables → Generate Domain |
+| **Render** | `render.yaml` | New → Blueprint → point at the repo → fill the two keys. Includes a 1 GB persistent disk at `/data`, so learning survives redeploys. |
+| **Fly.io** | — | `fly launch --dockerfile Dockerfile` then `fly secrets set GEMINI_API_KEY=... GOOGLE_MAPS_API_KEY=...` |
+
+All of them inject `$PORT`, which the container honours.
+
+### If Cloud Run rejects the deploy with `BILLING_DISABLED`
+
+This happens when a project is linked to a billing account that has no valid payment
+method — `gcloud billing projects describe` still reports `billingEnabled: true`, so the
+only visible symptom is Artifact Registry and Secret Manager returning `PERMISSION_DENIED
+... BILLING_DISABLED`. Re-link a working billing account at
+`console.cloud.google.com/billing/linkedaccount?project=<PROJECT>`, then re-run
+`./deploy.sh`. Nothing in the code needs to change.
+
+### Verifying a deployment
+
+```bash
+./scripts/smoke.sh https://your-url      # 7 endpoint checks + one real order end to end
+```
 
 ## 5. The agents
 

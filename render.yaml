@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: chainmind
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    healthCheckPath: /healthz
+    envVars:
+      - key: CHAINMIND_DB
+        value: /data/chainmind.db
+      - key: GEMINI_API_KEY
+        sync: false          # set in the Render dashboard
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+    disk:
+      name: chainmind-data
+      mountPath: /data
+      sizeGB: 1
