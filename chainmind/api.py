@@ -11,7 +11,7 @@ import json
 import os
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -34,12 +34,31 @@ WEB_DIR = Path(__file__).parent / "web"
 _boot: dict[str, Any] = {}
 
 
+# ---------------------------------------------------------------- MCP app
+# Built at import time: `streamable_http_app()` lazily creates the session
+# manager, and the lifespan below needs it to already exist.
+_mcp_server = None
+_mcp_asgi = None
+try:
+    from chainmind.mcp_server.server import build_server as _build_mcp
+
+    _mcp_server = _build_mcp()
+    _mcp_asgi = _mcp_server.streamable_http_app()
+except Exception as _exc:  # MCP must never prevent the API from starting
+    _mcp_import_error = str(_exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Boot: seed, then resolve models and probe Google APIs in parallel.
+    """Boot: seed, resolve models and probe Google APIs in parallel, and start
+    the MCP session manager.
 
     Model resolution costs one round trip and is done once here rather than on
     the first customer's order, so the first request is as fast as the hundredth.
+
+    The MCP part matters: a mounted ASGI sub-app does NOT get its own lifespan
+    run by the parent, and `streamable_http_app()` returns 500 "task group is
+    not initialized" until its session manager is running. So the parent owns it.
     """
     t0 = time.perf_counter()
     counts = seed(get_db())
@@ -48,14 +67,23 @@ async def lifespan(app: FastAPI):
         "seeded": counts,
         "models": models,
         "google_apis": probe,
+        "mcp_mounted": _mcp_asgi is not None,
         "boot_ms": round((time.perf_counter() - t0) * 1000, 1),
         "started_at": time.time(),
     })
     get_db().log_event("system", "boot", payload=_boot)
-    try:
-        yield
-    finally:
-        await maps.aclose()
+
+    async with AsyncExitStack() as stack:
+        if _mcp_server is not None:
+            try:
+                await stack.enter_async_context(_mcp_server.session_manager.run())
+            except Exception as exc:
+                get_db().log_event("system", "mcp_session_failed", level="error",
+                                   payload={"error": str(exc)})
+        try:
+            yield
+        finally:
+            await maps.aclose()
 
 
 app = FastAPI(
@@ -326,15 +354,8 @@ async def index() -> FileResponse:
 
 
 # ---------------------------------------------------------- MCP over HTTP
-def _mount_mcp() -> None:
-    """Expose the MCP server at /mcp so the deployment is a remote MCP server."""
-    try:
-        from chainmind.mcp_server.server import build_server
-
-        app.mount("/mcp", build_server().streamable_http_app())
-    except Exception as exc:  # never let MCP mounting break the API
-        get_db().log_event("system", "mcp_mount_failed", level="error",
-                           payload={"error": str(exc)})
-
-
-_mount_mcp()
+# The sub-app defines its own "/mcp" route and mcp 2.3 exposes no setting to
+# change it, so mounting at "" (rather than "/mcp") serves it at /mcp instead
+# of /mcp/mcp. This is registered last, so every API route above wins first.
+if _mcp_asgi is not None:
+    app.mount("", _mcp_asgi)

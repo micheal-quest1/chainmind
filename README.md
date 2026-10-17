@@ -340,6 +340,23 @@ Claude Desktop config:
 }
 ```
 
+Verify it on a running instance:
+
+```bash
+curl -s -X POST http://localhost:8080/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+       "protocolVersion":"2025-06-18","capabilities":{},
+       "clientInfo":{"name":"curl","version":"1"}}}'
+```
+
+> **Mounting note.** A mounted ASGI sub-app does *not* get its lifespan run by the
+> parent, and `streamable_http_app()` returns `500 task group is not initialized` until
+> its session manager is running — so the FastAPI lifespan owns it explicitly. The
+> sub-app also defines its own `/mcp` route and mcp 2.3 exposes no setting to change it,
+> so it is mounted at `""` rather than `"/mcp"` to avoid serving at `/mcp/mcp`.
+
 **Tools:** `network_status`, `search_inventory`, `check_fulfillment`, `order_status`,
 `compute_route`, `validate_address`, `optimize_multidrop`, `plan_packaging`,
 `quote_carriers`, `fulfil_order`, `reserve_stock`, `release_stock`, `record_delivery`,
