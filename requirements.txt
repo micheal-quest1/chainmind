@@ -11,3 +11,7 @@ google-genai==2.31.0
 mcp==2.3.0
 python-dotenv==1.0.1
 python-multipart==0.0.20
+
+# Test runner. Kept in the main file rather than a separate dev file so that
+# `make install && make test` works on a fresh clone with no extra step.
+pytest==8.3.4
