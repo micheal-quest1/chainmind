@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS inventory (
     reserved     INTEGER NOT NULL DEFAULT 0,
     unit_weight_g INTEGER NOT NULL DEFAULT 500,
     fragile      INTEGER NOT NULL DEFAULT 0,
+    reorder_point INTEGER NOT NULL DEFAULT 0,   -- replenish below this
+    target_stock  INTEGER NOT NULL DEFAULT 0,   -- replenish back up to this
     PRIMARY KEY (warehouse_id, sku)
 );
 CREATE INDEX IF NOT EXISTS idx_inventory_sku ON inventory(sku, on_hand DESC);
@@ -95,6 +97,38 @@ CREATE TABLE IF NOT EXISTS shipments (
     created_at    REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ship_order ON shipments(order_id);
+
+-- Goods entering the network: supplier deliveries, returns, transfer arrivals.
+CREATE TABLE IF NOT EXISTS receipts (
+    id           TEXT PRIMARY KEY,
+    warehouse_id TEXT NOT NULL,
+    sku          TEXT NOT NULL,
+    qty          INTEGER NOT NULL,
+    source       TEXT NOT NULL,            -- supplier | return | transfer
+    reference    TEXT,                     -- PO number, order id, transfer id
+    note         TEXT,
+    created_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_receipts_wh ON receipts(warehouse_id, created_at DESC);
+
+-- Stock rebalancing between godowns/storehouses.
+CREATE TABLE IF NOT EXISTS transfers (
+    id          TEXT PRIMARY KEY,
+    from_wh     TEXT NOT NULL,
+    to_wh       TEXT NOT NULL,
+    sku         TEXT NOT NULL,
+    qty         INTEGER NOT NULL,
+    reason      TEXT NOT NULL,
+    distance_km REAL NOT NULL DEFAULT 0,
+    eta_minutes REAL NOT NULL DEFAULT 0,
+    cost_inr    REAL NOT NULL DEFAULT 0,
+    status      TEXT NOT NULL,             -- proposed | in_transit | received
+    decided_by  TEXT,                      -- agent model or 'operator'
+    rationale   TEXT,
+    created_at  REAL NOT NULL,
+    received_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_transfers_status ON transfers(status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS events (
     seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,6 +207,23 @@ class Database:
         with self._write_lock:
             self._writer.executescript(_SCHEMA)
             self._writer.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Additive, idempotent column migrations.
+
+        CREATE TABLE IF NOT EXISTS silently does nothing when the table already
+        exists, so new columns on an existing table need their own ALTER. Each
+        one is guarded by a read of the current column set, which makes this
+        safe to run on every boot and safe to run against a fresh database.
+        """
+        have = {r["name"] for r in self.query("PRAGMA table_info(inventory)")}
+        for col, ddl in (
+            ("reorder_point", "ALTER TABLE inventory ADD COLUMN reorder_point INTEGER NOT NULL DEFAULT 0"),
+            ("target_stock", "ALTER TABLE inventory ADD COLUMN target_stock INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if col not in have:
+                self.execute(ddl)
 
     @property
     def reader(self) -> sqlite3.Connection:

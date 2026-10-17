@@ -51,13 +51,24 @@ def seed(db: Database, *, force: bool = False) -> dict[str, int]:
         WAREHOUSES,
     )
 
+    # Reorder point ~35% of nominal stock, target back up to nominal. Real
+    # systems derive these from lead time x demand; this is a stand-in that
+    # behaves the same way and makes the replenishment agent demonstrable.
     rows = []
     for sku, weight, fragile, stock in CATALOG:
         for wh, qty in stock.items():
-            rows.append((wh, sku, qty, 0, weight, fragile))
+            # target_stock must sit BELOW nominal holding, otherwise every node
+            # is exactly at target, surplus is zero everywhere, and no transfer
+            # can ever be proposed. Nodes carry ~30% above target as the buffer
+            # that makes them donors.
+            reorder_point = max(2, int(qty * 0.35))
+            target_stock = max(reorder_point + 1, int(qty * 0.70))
+            rows.append((wh, sku, qty, 0, weight, fragile, reorder_point, target_stock))
     db.executemany(
-        "INSERT INTO inventory (warehouse_id,sku,on_hand,reserved,unit_weight_g,fragile)"
-        " VALUES (?,?,?,?,?,?) ON CONFLICT(warehouse_id,sku) DO NOTHING",
+        "INSERT INTO inventory (warehouse_id,sku,on_hand,reserved,unit_weight_g,fragile,"
+        "reorder_point,target_stock) VALUES (?,?,?,?,?,?,?,?)"
+        " ON CONFLICT(warehouse_id,sku) DO UPDATE SET"
+        " reorder_point=excluded.reorder_point, target_stock=excluded.target_stock",
         rows,
     )
 

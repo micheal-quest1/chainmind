@@ -208,6 +208,95 @@ def release_stock(order_id: str) -> dict[str, Any]:
     return logistics.release_stock(order_id)
 
 
+# ------------------------------------------------------- inventory management
+@mcp.tool(
+    description="Full stock position across the network: every SKU at every warehouse "
+                "with on-hand, reserved, available, reorder point and a health state "
+                "(healthy / low / critical / out_of_stock)."
+)
+def stock_levels() -> dict[str, Any]:
+    from chainmind.services import inventory as inv
+
+    grid = inv.stock_grid()
+    return {"by_state": grid["by_state"], "sku_totals": grid["sku_totals"],
+            "needs_attention": grid["needs_attention"]}
+
+
+@mcp.tool(
+    description="Book goods into a warehouse (supplier delivery or returned stock). "
+                "Increases on-hand immediately and records a goods-receipt note."
+)
+def receive_stock(warehouse_id: str, sku: str, qty: int,
+                  source: str = "supplier", reference: str = "") -> dict[str, Any]:
+    from chainmind.services import inventory as inv
+
+    return inv.receive_stock(warehouse_id, sku, int(qty), source=source, reference=reference)
+
+
+@mcp.tool(
+    description="Find every warehouse at or below its reorder point, with the real "
+                "surplus available elsewhere and the Google-Maps-priced cost of moving it."
+)
+async def replenishment_needs() -> dict[str, Any]:
+    from chainmind import replenishment
+
+    out = await replenishment.scan()
+    return {"healthy": out["healthy"], "needs": out["context"]}
+
+
+@mcp.tool(
+    description="Run the autonomous inventory planner: decide and execute stock "
+                "transfers between warehouses to fix low stock. Set execute=false to "
+                "see the plan without moving anything."
+)
+async def run_replenishment(execute: bool = True) -> dict[str, Any]:
+    from chainmind import replenishment
+
+    return await replenishment.run(execute=bool(execute))
+
+
+@mcp.tool(
+    description="Move stock between two warehouses. Depletes the source immediately; "
+                "the destination receives it when the transfer lands."
+)
+def transfer_stock(from_warehouse: str, to_warehouse: str, sku: str, qty: int,
+                   reason: str = "manual") -> dict[str, Any]:
+    from chainmind.services import inventory as inv
+
+    return inv.create_transfer(from_warehouse, to_warehouse, sku, int(qty), reason=reason)
+
+
+@mcp.tool(description="Land an in-flight stock transfer at its destination warehouse.")
+def receive_transfer(transfer_id: str) -> dict[str, Any]:
+    from chainmind.services import inventory as inv
+
+    return inv.receive_transfer(transfer_id)
+
+
+@mcp.tool(
+    description="Process a customer return. Restockable goods go back into sellable "
+                "stock at the warehouse that shipped them; damaged goods are written off."
+)
+def process_return(order_id: str, sku: str, qty: int, restockable: bool = True,
+                   reason: str = "") -> dict[str, Any]:
+    from chainmind.services import inventory as inv
+
+    return inv.process_return(order_id, sku, int(qty),
+                              restockable=bool(restockable), reason=reason)
+
+
+@mcp.tool(
+    description="Orders the system could not complete autonomously and that need a "
+                "human decision, with the reason each one stalled."
+)
+def open_exceptions() -> dict[str, Any]:
+    db = get_db()
+    rows = db.query(
+        "SELECT id, raw, status, dest_label FROM orders WHERE status IN"
+        " ('escalated','failed','address_rejected') ORDER BY updated_at DESC LIMIT 40")
+    return {"exceptions": [dict(r) for r in rows], "count": len(rows)}
+
+
 # ------------------------------------------------------------- feedback side
 @mcp.tool(
     description="Close the feedback loop: report a shipment's actual delivery time. "

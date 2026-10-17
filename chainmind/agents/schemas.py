@@ -102,3 +102,38 @@ FEEDBACK_INSIGHT = {
     },
     "required": ["insights", "summary"],
 }
+
+REPLENISHMENT_PLAN = {
+    "type": "OBJECT",
+    "properties": {
+        "transfers": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "from_warehouse": {"type": "STRING"},
+                    "to_warehouse": {"type": "STRING"},
+                    "sku": {"type": "STRING"},
+                    "qty": {"type": "INTEGER"},
+                    "reason": {"type": "STRING", "description": "Max 20 words"},
+                },
+                "required": ["from_warehouse", "to_warehouse", "sku", "qty", "reason"],
+            },
+        },
+        "purchase_suggestions": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "sku": {"type": "STRING"},
+                    "qty": {"type": "INTEGER"},
+                    "why": {"type": "STRING", "description": "Max 20 words"},
+                },
+                "required": ["sku", "qty", "why"],
+            },
+            "description": "Network-wide shortages no transfer can fix - buy from supplier",
+        },
+        "summary": {"type": "STRING", "description": "Max 35 words, plain operational English"},
+    },
+    "required": ["transfers", "summary"],
+}

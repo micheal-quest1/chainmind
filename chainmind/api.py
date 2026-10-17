@@ -28,6 +28,8 @@ from chainmind.core.reliability import Tracer, breaker_snapshot
 from chainmind.core.seed import seed
 from chainmind.feedback import learning_curve, record_delivery, reflect
 from chainmind.pipeline import run_order
+from chainmind import replenishment
+from chainmind.services import inventory as inv
 from chainmind.services import logistics, maps
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -257,16 +259,199 @@ async def get_network() -> dict[str, Any]:
     return logistics.network_snapshot()
 
 
-@app.get("/api/inventory", tags=["network"])
+@app.get("/api/inventory", tags=["inventory"])
 async def get_inventory(sku: str | None = None) -> dict[str, Any]:
-    db = get_db()
+    """Full stock position with health states, or one SKU's locations."""
     if sku:
         return {"sku": sku, "warehouses": logistics.search_inventory(sku, 1)}
-    rows = db.query(
-        "SELECT sku, SUM(on_hand) total, SUM(reserved) reserved,"
-        " COUNT(*) locations FROM inventory GROUP BY sku ORDER BY sku"
+    return inv.stock_grid()
+
+
+class ReceiveRequest(BaseModel):
+    warehouse_id: str
+    sku: str
+    qty: int = Field(..., gt=0, le=100000)
+    source: str = Field("supplier", max_length=32)
+    reference: str = Field("", max_length=64)
+    note: str = Field("", max_length=240)
+
+
+@app.post("/api/inventory/receive", tags=["inventory"])
+async def receive(req: ReceiveRequest) -> dict[str, Any]:
+    """Goods inward: book a supplier delivery into a warehouse."""
+    out = inv.receive_stock(req.warehouse_id, req.sku, req.qty,
+                            source=req.source, reference=req.reference, note=req.note)
+    if not out["ok"]:
+        raise HTTPException(400, out["error"])
+    return out
+
+
+class ReorderPolicyRequest(BaseModel):
+    warehouse_id: str
+    sku: str
+    reorder_point: int = Field(..., ge=0, le=100000)
+    target_stock: int = Field(..., ge=0, le=100000)
+
+
+@app.post("/api/inventory/policy", tags=["inventory"])
+async def set_policy(req: ReorderPolicyRequest) -> dict[str, Any]:
+    out = inv.set_reorder_policy(req.warehouse_id, req.sku,
+                                 req.reorder_point, req.target_stock)
+    if not out["ok"]:
+        raise HTTPException(400, out["error"])
+    return out
+
+
+class ReturnRequest(BaseModel):
+    order_id: str
+    sku: str
+    qty: int = Field(..., gt=0, le=10000)
+    restockable: bool = True
+    reason: str = Field("", max_length=240)
+
+
+@app.post("/api/returns", tags=["inventory"])
+async def post_return(req: ReturnRequest) -> dict[str, Any]:
+    """Reverse logistics: take goods back, restock them if they are sellable."""
+    out = inv.process_return(req.order_id, req.sku, req.qty,
+                             restockable=req.restockable, reason=req.reason)
+    if not out["ok"]:
+        raise HTTPException(400, out["error"])
+    return out
+
+
+@app.get("/api/replenishment", tags=["inventory"])
+async def replenishment_scan() -> dict[str, Any]:
+    """What needs restocking and what it would cost to fix. Read-only."""
+    return await replenishment.scan()
+
+
+@app.post("/api/replenishment/run", tags=["inventory"])
+async def replenishment_run(execute: bool = True) -> dict[str, Any]:
+    """Run the inventory planner. `execute=false` proposes without moving stock."""
+    return await replenishment.run(execute=execute)
+
+
+@app.get("/api/transfers", tags=["inventory"])
+async def get_transfers(limit: int = 50) -> dict[str, Any]:
+    return {"transfers": inv.list_transfers(limit)}
+
+
+class TransferRequest(BaseModel):
+    from_warehouse: str
+    to_warehouse: str
+    sku: str
+    qty: int = Field(..., gt=0, le=100000)
+    reason: str = Field("manual", max_length=120)
+
+
+@app.post("/api/transfers/manual", tags=["inventory"])
+async def transfer_manual(req: TransferRequest) -> dict[str, Any]:
+    """Operator-initiated stock move, priced against the real road distance.
+
+    Goes through the same validated path the replenishment agent uses, so a
+    manual move can no more oversell a warehouse than an automated one can.
+    """
+    db = get_db()
+    src = db.one("SELECT lat, lng FROM warehouses WHERE id=?", (req.from_warehouse,))
+    dst = db.one("SELECT lat, lng FROM warehouses WHERE id=?", (req.to_warehouse,))
+    if not src or not dst:
+        raise HTTPException(404, "unknown warehouse")
+    stock = db.one("SELECT unit_weight_g FROM inventory WHERE warehouse_id=? AND sku=?",
+                   (req.from_warehouse, req.sku))
+    if not stock:
+        raise HTTPException(400, f"{req.from_warehouse} does not stock {req.sku}")
+
+    leg = await maps.compute_route((src["lat"], src["lng"]), (dst["lat"], dst["lng"]))
+    pricing = inv.price_transfer(leg.distance_km, req.qty, stock["unit_weight_g"])
+    out = inv.create_transfer(
+        req.from_warehouse, req.to_warehouse, req.sku, req.qty,
+        reason=req.reason, distance_km=pricing["distance_km"],
+        eta_minutes=pricing["eta_minutes"], cost_inr=pricing["cost_inr"],
+        decided_by="operator",
     )
-    return {"skus": [dict(r) for r in rows]}
+    if not out["ok"]:
+        raise HTTPException(400, out["error"])
+    return out
+
+
+@app.post("/api/transfers/{transfer_id}/receive", tags=["inventory"])
+async def transfer_receive(transfer_id: str) -> dict[str, Any]:
+    out = inv.receive_transfer(transfer_id)
+    if not out["ok"]:
+        raise HTTPException(404, out["error"])
+    return out
+
+
+@app.get("/api/receipts", tags=["inventory"])
+async def get_receipts(limit: int = 50) -> dict[str, Any]:
+    return {"receipts": inv.list_receipts(limit)}
+
+
+@app.get("/api/shipments", tags=["shipments"])
+async def get_shipments(status: str | None = None, limit: int = 60) -> dict[str, Any]:
+    """The tracking board: what is in transit, what landed, what it cost."""
+    db = get_db()
+    sql = ("SELECT s.*, o.dest_label, o.priority, o.raw FROM shipments s"
+           " JOIN orders o ON o.id = s.order_id")
+    params: list[Any] = []
+    if status:
+        sql += " WHERE s.status = ?"
+        params.append(status)
+    sql += " ORDER BY s.created_at DESC LIMIT ?"
+    params.append(min(limit, 200))
+
+    out = []
+    for r in db.query(sql, params):
+        route = json.loads(r["route"] or "{}")
+        pack = json.loads(r["packaging"] or "{}")
+        out.append({
+            "shipment_id": r["id"], "order_id": r["order_id"],
+            "warehouse_id": r["warehouse_id"], "carrier": r["carrier"],
+            "status": r["status"], "destination": r["dest_label"],
+            "priority": r["priority"],
+            "eta_minutes": round(r["eta_minutes"], 1),
+            "actual_minutes": round(r["actual_minutes"], 1) if r["actual_minutes"] else None,
+            "distance_km": round(r["distance_km"], 1),
+            "cost_inr": round(r["cost_inr"], 2),
+            "box": pack.get("box"), "cold_chain": pack.get("cold_chain", False),
+            "fragile": pack.get("fragile", False),
+            "map_url": route.get("static_map_url"),
+            "created_at": r["created_at"],
+            "on_time": (r["actual_minutes"] <= r["eta_minutes"] * 1.1)
+                       if r["actual_minutes"] else None,
+        })
+    counts = {row["status"]: row["c"] for row in db.query(
+        "SELECT status, COUNT(*) c FROM shipments GROUP BY status")}
+    return {"shipments": out, "counts": counts}
+
+
+@app.get("/api/exceptions", tags=["shipments"])
+async def get_exceptions(limit: int = 40) -> dict[str, Any]:
+    """Orders the system could not complete on its own - the human work queue."""
+    db = get_db()
+    rows = db.query(
+        "SELECT id, raw, status, priority, dest_label, created_at, updated_at"
+        " FROM orders WHERE status IN"
+        " ('escalated','failed','address_rejected','returned_damaged')"
+        " ORDER BY updated_at DESC LIMIT ?", (min(limit, 200),))
+    out = []
+    for r in rows:
+        last = db.one(
+            "SELECT stage, message, payload FROM events WHERE order_id=?"
+            " AND level!='info' ORDER BY seq DESC LIMIT 1", (r["id"],))
+        detail = db.one(
+            "SELECT message, payload FROM events WHERE order_id=? AND stage='heal'"
+            " ORDER BY seq DESC LIMIT 1", (r["id"],))
+        payload = json.loads((detail or last or {}).get("payload") or "{}") if (detail or last) else {}
+        out.append({
+            "order_id": r["id"], "order_text": r["raw"], "status": r["status"],
+            "priority": r["priority"], "destination": r["dest_label"],
+            "created_at": r["created_at"],
+            "reason": payload.get("explanation") or payload.get("failure")
+                      or (last["message"] if last else "unknown"),
+        })
+    return {"exceptions": out, "count": len(out)}
 
 
 @app.post("/api/multidrop", tags=["network"])

@@ -85,7 +85,11 @@ Coimbatore — holding 8 SKUs across godowns, storehouses and a darkstore, serve
 carriers with different weight limits, fragility ratings, cold-chain capability and
 price curves.
 
-The system takes a plain-English order and autonomously:
+It covers both halves of a logistics handler's job.
+
+### Outbound — order to doorstep
+
+Takes a plain-English order and autonomously:
 
 1. **Parses** it into structured line items against a real catalogue (never inventing a SKU)
 2. **Validates the delivery address** with Google, before anything is committed
@@ -101,9 +105,34 @@ The system takes a plain-English order and autonomously:
 11. **Inspects a parcel photo** with a vision agent and can block dispatch (optional)
 12. **Dispatches**, then **learns** from the real delivery time
 
+### Inventory — keeping stock where it needs to be
+
+Fulfilment is reactive. This runs *ahead* of demand:
+
+- **Reorder policy** per (warehouse, SKU): a reorder point and a target level, with every
+  location classified `healthy` / `low` / `critical` / `out_of_stock`
+- **Replenishment agent** scans for nodes below their reorder point, finds real surplus
+  elsewhere (only stock *above* a donor's own target counts), prices each option against
+  live Google road distances, and decides which moves are worth making
+- **Inter-warehouse transfers** — the godown → storehouse leg. Stock leaves the donor on
+  dispatch and lands on receipt, so in-flight units are never available at both ends
+- **Purchase suggestions** when the whole network is short and no transfer can fix it
+- **Goods inward** — supplier deliveries booked against a reference, creating the SKU at
+  that node if it is new there
+- **Returns / reverse logistics** — sellable goods go back into stock at the warehouse
+  that shipped them; damaged goods are recorded and written off, never resold
+- **Exception queue** — orders the system could not complete, each with the reason it
+  stopped, as a human work list
+
 Everything is traced. Every stage is idempotent. Nothing is mocked unless a key is missing.
 
----
+### The dashboard
+
+`/` is an operations console, not a debug view: Overview, New Order, Inventory,
+Shipments, Stock Transfers, Exceptions, Assistant. Pipeline stages are shown in
+operational language ("Warehouse & carrier chosen", not `agent.planner`), and the
+engineering detail — model routing, span percentiles, raw traces — lives behind a
+separate **System** tab so it is available without being in an operator's way.
 
 ## 2. Why it is fast (the judged metric)
 
@@ -326,6 +355,7 @@ is the whole multi-model strategy.
 | **Healer** | `gemini-3.7-flash` | tool loop → structured | investigate with live tools, commit to one of 6 repair strategies |
 | **QA inspector** | `gemini-3.5-flash` | multimodal | parcel photo → damage verdict + label OCR; can block dispatch |
 | **Copilot** | `gemini-3.5-flash` | multi-turn tool loop | conversational ops, calling the same tools the pipeline uses |
+| **Replenishment** | `gemini-3.6-flash` | structured, 1 call | decide which stock transfers are worth making |
 | **Reflection** | `gemini-3.5-flash-lite` | structured, batched | distil delivery outcomes into routing policies |
 
 ### Three deliberate call shapes
@@ -352,7 +382,7 @@ every candidate concurrently and pin each tier to one that actually answered.
 
 ## 6. MCP integration
 
-The logistics network is exposed as a **Model Context Protocol** server with **15 tools**
+The logistics network is exposed as a **Model Context Protocol** server with **23 tools**
 and 2 resources — over **both transports**:
 
 ```bash
@@ -406,9 +436,12 @@ curl -s -X POST http://localhost:8080/mcp \
 >    `MCP_ALLOWED_HOSTS=host1,host2` to re-enable DNS-rebinding protection for a
 >    non-public deployment.
 
-**Tools:** `network_status`, `search_inventory`, `check_fulfillment`, `order_status`,
-`compute_route`, `validate_address`, `optimize_multidrop`, `plan_packaging`,
-`quote_carriers`, `fulfil_order`, `reserve_stock`, `release_stock`, `record_delivery`,
+**Tools (23).** Fulfilment: `fulfil_order`, `check_fulfillment`, `search_inventory`,
+`plan_packaging`, `quote_carriers`, `reserve_stock`, `release_stock`, `order_status`.
+Geo: `compute_route`, `validate_address`, `optimize_multidrop`.
+Inventory: `stock_levels`, `receive_stock`, `replenishment_needs`,
+`run_replenishment`, `transfer_stock`, `receive_transfer`, `process_return`.
+Operations: `network_status`, `open_exceptions`, `record_delivery`,
 `run_reflection`, `learning_state`.
 **Resources:** `chainmind://network`, `chainmind://policies`.
 
@@ -560,7 +593,18 @@ Interactive docs at **`/docs`** (OpenAPI).
 | `POST` | `/api/reflect` | Run the reflection agent |
 | `GET` | `/api/feedback` | Learning curve, carrier bias, active policies |
 | `GET` | `/api/network` | Warehouses, stock, carrier stats |
-| `GET` | `/api/inventory?sku=` | Inventory by SKU |
+| `GET` | `/api/inventory` | Full stock position with health states |
+| `POST` | `/api/inventory/receive` | **Goods inward** from a supplier |
+| `POST` | `/api/inventory/policy` | Set a reorder point / target level |
+| `GET` | `/api/replenishment` | What needs restocking, and what fixing it costs |
+| `POST` | `/api/replenishment/run` | **Run the inventory planner** (`?execute=false` to preview) |
+| `GET` | `/api/transfers` | Stock movements between warehouses |
+| `POST` | `/api/transfers/manual` | Operator-initiated stock move |
+| `POST` | `/api/transfers/{id}/receive` | Land an in-flight transfer |
+| `GET` | `/api/receipts` | Goods-receipt history |
+| `POST` | `/api/returns` | **Reverse logistics** — restock or write off |
+| `GET` | `/api/shipments` | Tracking board |
+| `GET` | `/api/exceptions` | Orders needing a human decision |
 | `POST` | `/api/multidrop` | Google waypoint-optimised multi-stop route |
 | `GET` | `/api/metrics` | p50/p95/p99 per span, breaker state, totals |
 | `GET` | `/api/events` | Recent pipeline events |
@@ -651,6 +695,7 @@ chainmind/
   api.py                  FastAPI: REST + SSE + dashboard + /mcp mount
   pipeline.py             the orchestrator — speculative geo, fan-out, critic, repair loop
   feedback.py             two-tier learning loop + learning curve
+  replenishment.py        autonomous stock rebalancing across the network
   core/
     config.py             env-driven settings, model tiers, capability reporting
     db.py                 SQLite WAL facade, schema, span/event recording
@@ -666,14 +711,17 @@ chainmind/
   services/
     maps.py               Routes v2, matrix, waypoint optimisation, address validation,
                           geocoding, static maps — each with a deterministic fallback
-    logistics.py          inventory, atomic reservation, packaging, carrier pricing, dispatch
+    logistics.py          stock lookup, atomic reservation, packaging, carrier pricing, dispatch
+    inventory.py          reorder policy, goods inward, transfers, returns
   mcp_server/             15-tool MCP server, stdio + streamable HTTP
   web/index.html          live dashboard
 scripts/
   verify_apis.py          prove which Google APIs your key reaches
   probe_models.py         which Gemini models actually answer
   probe_thinking.py       which thinking-control syntax each family accepts
-  e2e.py                  the scripted demo
+  e2e.py                  the scripted demo (fulfilment + feedback + copilot)
+  e2e_inventory.py        the inventory demo (replenishment, transfers, goods-in, returns)
+  smoke.sh                endpoint checks against any running instance
   bench.py                the latency benchmark
 ```
 

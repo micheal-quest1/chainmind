@@ -193,3 +193,132 @@ def test_pipeline_completes_without_any_api_key(db, monkeypatch):
     assert r["shipment"]["carrier"]
     assert r["shipment"]["route"]["source"] == "haversine-fallback"
     get_settings.cache_clear()
+
+
+# ============================== inventory management ==============================
+def test_transfer_cannot_oversell(db):
+    """A transfer must never move stock the donor does not have."""
+    from chainmind.services.inventory import create_transfer
+    from chainmind.services.logistics import search_inventory
+
+    avail = next(c["available"] for c in search_inventory("SKU-MONITOR-27", 1)
+                 if c["warehouse_id"] == "WH-BLR")
+    bad = create_transfer("WH-BLR", "WH-MAA", "SKU-MONITOR-27", avail + 50, reason="test")
+    assert bad["ok"] is False
+    after = next(c["available"] for c in search_inventory("SKU-MONITOR-27", 1)
+                 if c["warehouse_id"] == "WH-BLR")
+    assert after == avail, "a rejected transfer must not touch stock"
+
+
+def test_transfer_moves_stock_only_on_receipt(db):
+    """In-flight stock must not be available at both ends at once."""
+    from chainmind.services.inventory import create_transfer, receive_transfer
+    from chainmind.services.logistics import search_inventory
+
+    at = lambda wh: next(
+        (c["available"] for c in search_inventory("SKU-KEYBOARD", 1)
+         if c["warehouse_id"] == wh), 0)
+    src_before, dst_before = at("WH-MAA"), at("WH-HYD")
+
+    t = create_transfer("WH-MAA", "WH-HYD", "SKU-KEYBOARD", 20, reason="test")
+    assert t["ok"]
+    assert at("WH-MAA") == src_before - 20, "donor depletes on dispatch"
+    assert at("WH-HYD") == dst_before, "receiver gains nothing until it lands"
+
+    receive_transfer(t["transfer_id"])
+    assert at("WH-HYD") == dst_before + 20
+    assert at("WH-MAA") == src_before - 20
+
+
+def test_transfer_receipt_is_idempotent(db):
+    from chainmind.services.inventory import create_transfer, receive_transfer
+    from chainmind.services.logistics import search_inventory
+
+    t = create_transfer("WH-MAA", "WH-HYD", "SKU-KEYBOARD", 10, reason="test")
+    receive_transfer(t["transfer_id"])
+    after_first = next(c["available"] for c in search_inventory("SKU-KEYBOARD", 1)
+                       if c["warehouse_id"] == "WH-HYD")
+    second = receive_transfer(t["transfer_id"])
+    after_second = next(c["available"] for c in search_inventory("SKU-KEYBOARD", 1)
+                        if c["warehouse_id"] == "WH-HYD")
+    assert second["idempotent_replay"] is True
+    assert after_first == after_second, "re-receiving must not duplicate stock"
+
+
+def test_receive_creates_sku_at_new_location(db):
+    from chainmind.services.inventory import receive_stock
+    from chainmind.services.logistics import search_inventory
+
+    assert not [c for c in search_inventory("SKU-CHAIR-ERGO", 1)
+                if c["warehouse_id"] == "WH-CJB"]
+    out = receive_stock("WH-CJB", "SKU-CHAIR-ERGO", 7, source="supplier", reference="PO-1")
+    assert out["ok"] and out["available_now"] == 7
+    assert [c for c in search_inventory("SKU-CHAIR-ERGO", 1)
+            if c["warehouse_id"] == "WH-CJB"]
+
+
+def test_replenishment_detects_low_stock(db):
+    """Falling to the reorder point must raise a need with the right shortfall."""
+    from chainmind.services.inventory import replenishment_needs
+
+    assert replenishment_needs() == []
+    row = db.one("SELECT reorder_point, target_stock FROM inventory"
+                 " WHERE warehouse_id='WH-HYD' AND sku='SKU-PHONE-PRO'")
+    db.execute("UPDATE inventory SET on_hand=? WHERE warehouse_id='WH-HYD'"
+               " AND sku='SKU-PHONE-PRO'", (row["reorder_point"],))
+    needs = replenishment_needs()
+    need = next(n for n in needs if n["warehouse_id"] == "WH-HYD")
+    assert need["qty_needed"] == row["target_stock"] - row["reorder_point"]
+
+
+def test_donor_never_drops_below_its_own_target(db):
+    """`can_send` must only ever offer genuine surplus."""
+    from chainmind.services.inventory import donor_options
+
+    for d in donor_options("SKU-CABLE-USBC", 10_000, exclude="WH-HYD"):
+        row = db.one("SELECT on_hand, reserved, target_stock FROM inventory"
+                     " WHERE warehouse_id=? AND sku='SKU-CABLE-USBC'", (d["warehouse_id"],))
+        available = row["on_hand"] - row["reserved"]
+        assert available - d["surplus"] >= row["target_stock"]
+
+
+def test_damaged_return_is_not_restocked(db):
+    """Written-off goods must never re-enter sellable stock."""
+    import json
+    import time
+
+    from chainmind.services.inventory import process_return
+    from chainmind.services.logistics import search_inventory
+
+    db.execute("INSERT INTO orders (id,raw,status,priority,created_at,updated_at)"
+               " VALUES ('O9','x','dispatched','standard',?,?)", (time.time(), time.time()))
+    db.execute(
+        "INSERT INTO shipments (id,order_id,warehouse_id,carrier,packaging,route,"
+        "distance_km,eta_minutes,cost_inr,status,created_at)"
+        " VALUES ('S9','O9','WH-MAA','Ekart',?,?,10,30,100,'delivered',?)",
+        (json.dumps({}), json.dumps({}), time.time()))
+
+    at = lambda: next(c["available"] for c in search_inventory("SKU-KEYBOARD", 1)
+                      if c["warehouse_id"] == "WH-MAA")
+    before = at()
+    out = process_return("O9", "SKU-KEYBOARD", 3, restockable=False, reason="water damage")
+    assert out["ok"] and out["restocked"] is False
+    assert at() == before, "damaged goods must not increase sellable stock"
+
+    process_return("O9", "SKU-KEYBOARD", 3, restockable=True)
+    assert at() == before + 3, "good returns go back into stock"
+
+
+def test_stock_grid_states(db):
+    """Health states must follow the reorder policy, not vibes."""
+    from chainmind.services.inventory import stock_grid
+
+    db.execute("UPDATE inventory SET on_hand=0 WHERE warehouse_id='WH-CJB' AND sku='SKU-TSHIRT-M'")
+    rp = db.one("SELECT reorder_point FROM inventory WHERE warehouse_id='WH-MAA'"
+                " AND sku='SKU-TSHIRT-M'")["reorder_point"]
+    db.execute("UPDATE inventory SET on_hand=? WHERE warehouse_id='WH-MAA'"
+               " AND sku='SKU-TSHIRT-M'", (rp,))
+
+    items = {(i["warehouse_id"], i["sku"]): i for i in stock_grid()["items"]}
+    assert items[("WH-CJB", "SKU-TSHIRT-M")]["state"] == "out_of_stock"
+    assert items[("WH-MAA", "SKU-TSHIRT-M")]["state"] in ("low", "critical")

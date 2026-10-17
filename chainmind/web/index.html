@@ -1,367 +1,873 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ChainMind</title>
+<title>ChainMind Logistics Control</title>
 <style>
 :root{
-  --bg:#0a0d14; --panel:#111722; --panel2:#161d2b; --line:#232c3d;
-  --fg:#e6ecf6; --dim:#8a97ad; --accent:#4f8cff; --ok:#2ecc8f; --warn:#f5a623;
-  --err:#ff5c6c; --purple:#a78bfa; --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  --bg:#f5f7fa; --surface:#ffffff; --surface2:#f0f3f8; --line:#dde3ec;
+  --fg:#16202e; --dim:#5d6b80; --faint:#8d99ab;
+  --brand:#1f63d6; --brand-soft:#e8f0fe;
+  --ok:#0f8a52; --ok-soft:#e3f6ec;
+  --warn:#b26a00; --warn-soft:#fdf1dc;
+  --crit:#c3362b; --crit-soft:#fdeceb;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e131b; --surface:#151c27; --surface2:#1b2432; --line:#2a3545;
+    --fg:#e8eef7; --dim:#9aa8bd; --faint:#6f7d92;
+    --brand:#5b9bff; --brand-soft:#17273f;
+    --ok:#3ecf8e; --ok-soft:#10301f;
+    --warn:#e3a43a; --warn-soft:#332611;
+    --crit:#ff6b60; --crit-soft:#361715;
+  }
 }
 *{box-sizing:border-box}
+html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--fg);
-  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
-a{color:var(--accent)}
-header{display:flex;align-items:center;gap:14px;padding:14px 20px;
-  border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:9}
-.logo{font-weight:700;font-size:17px;letter-spacing:-.02em}
-.logo span{color:var(--accent)}
-.tag{font-size:11px;color:var(--dim);border:1px solid var(--line);
-  padding:3px 8px;border-radius:99px;font-family:var(--mono)}
-.tag.live{color:var(--ok);border-color:#1e4d3a;background:#0f2b20}
-.tag.mock{color:var(--warn);border-color:#4d3a1e;background:#2b200f}
-.wrap{display:grid;grid-template-columns:420px 1fr;gap:16px;padding:16px;
-  max-width:1680px;margin:0 auto;align-items:start}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.card h2{margin:0;padding:12px 16px;font-size:12px;text-transform:uppercase;
-  letter-spacing:.09em;color:var(--dim);border-bottom:1px solid var(--line);
-  display:flex;justify-content:space-between;align-items:center}
-.card .body{padding:14px 16px}
-textarea,input{width:100%;background:var(--panel2);border:1px solid var(--line);
-  color:var(--fg);border-radius:8px;padding:10px;font:inherit;resize:vertical}
-textarea:focus,input:focus{outline:none;border-color:var(--accent)}
-button{background:var(--accent);color:#fff;border:0;border-radius:8px;
-  padding:10px 16px;font:600 14px inherit;cursor:pointer}
-button:disabled{opacity:.5;cursor:not-allowed}
-button.ghost{background:var(--panel2);border:1px solid var(--line);color:var(--fg);font-weight:500}
-.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.chip{font-size:11px;padding:5px 9px;border-radius:99px;background:var(--panel2);
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.01em}
+button{font:inherit;cursor:pointer}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+nav{background:var(--surface);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:18px 18px 14px;border-bottom:1px solid var(--line)}
+.brand .name{font-size:17px;font-weight:700;letter-spacing:-.02em}
+.brand .name i{color:var(--brand);font-style:normal}
+.brand .sub{font-size:11px;color:var(--faint);text-transform:uppercase;
+  letter-spacing:.09em;margin-top:3px}
+.navlist{padding:10px 10px;flex:1;overflow-y:auto}
+.navitem{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;
+  color:var(--dim);font-weight:500;cursor:pointer;margin-bottom:2px;user-select:none}
+.navitem:hover{background:var(--surface2);color:var(--fg)}
+.navitem.on{background:var(--brand-soft);color:var(--brand);font-weight:600}
+.navitem .ico{width:18px;text-align:center;font-size:15px}
+.navitem .badge{margin-left:auto;font-size:11px;font-weight:700;padding:1px 7px;
+  border-radius:99px;background:var(--crit-soft);color:var(--crit)}
+.navitem .badge.zero{display:none}
+.navfoot{padding:12px;border-top:1px solid var(--line);font-size:11px;color:var(--faint)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 8px;
+  border-radius:99px;background:var(--surface2);color:var(--dim);margin:2px 3px 2px 0}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+.pill.live{background:var(--ok-soft);color:var(--ok)} .pill.live .dot{background:var(--ok)}
+.pill.off{background:var(--warn-soft);color:var(--warn)} .pill.off .dot{background:var(--warn)}
+
+main{padding:0 0 48px;overflow-x:hidden}
+header.top{display:flex;align-items:center;gap:14px;padding:18px 26px;
+  border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:5}
+header.top h1{font-size:19px}
+header.top .desc{color:var(--dim);font-size:13px}
+.view{display:none;padding:22px 26px} .view.on{display:block}
+
+/* ---------- primitives ---------- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  margin-bottom:16px;overflow:hidden}
+.card>h2{font-size:13px;padding:13px 16px;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:10px}
+.card>h2 .note{margin-left:auto;font-weight:400;color:var(--faint);font-size:12px}
+.card .body{padding:16px}
+.grid{display:grid;gap:12px}
+.g4{grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.kpi .v{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi .l{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;margin-top:2px}
+.kpi .s{font-size:12px;color:var(--faint);margin-top:4px}
+.kpi.ok .v{color:var(--ok)} .kpi.warn .v{color:var(--warn)}
+.kpi.crit .v{color:var(--crit)} .kpi.brand .v{color:var(--brand)}
+
+button.btn{background:var(--brand);color:#fff;border:0;border-radius:8px;
+  padding:9px 15px;font-weight:600}
+button.btn:disabled{opacity:.5;cursor:not-allowed}
+button.ghost{background:var(--surface);border:1px solid var(--line);color:var(--fg);
+  border-radius:8px;padding:9px 15px;font-weight:500}
+button.ghost:hover:not(:disabled){border-color:var(--brand);color:var(--brand)}
+button.sm{padding:5px 10px;font-size:12px;border-radius:7px}
+.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.row.mt{margin-top:12px}
+textarea,input,select{width:100%;background:var(--surface);border:1px solid var(--line);
+  color:var(--fg);border-radius:8px;padding:9px 11px;font:inherit}
+textarea:focus,input:focus,select:focus{outline:none;border-color:var(--brand);
+  box-shadow:0 0 0 3px var(--brand-soft)}
+label.fl{display:block;font-size:12px;font-weight:600;color:var(--dim);margin:0 0 5px}
+.field{margin-bottom:11px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;
+  letter-spacing:.06em;padding:9px 14px;border-bottom:1px solid var(--line);
+  background:var(--surface2);position:sticky;top:0}
+td{padding:9px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:var(--surface2)}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+.mono{font-family:var(--mono);font-size:12px}
+.scroll{max-height:460px;overflow:auto}
+
+.tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;
+  background:var(--surface2);color:var(--dim);white-space:nowrap}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.crit{background:var(--crit-soft);color:var(--crit)}
+.tag.brand{background:var(--brand-soft);color:var(--brand)}
+
+.empty{padding:34px 18px;text-align:center;color:var(--faint)}
+.empty .big{font-size:30px;margin-bottom:6px;opacity:.6}
+.muted{color:var(--dim)} .faint{color:var(--faint);font-size:12px}
+
+/* ---------- order progress ---------- */
+.steps{display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:26px 1fr auto;gap:12px;padding:11px 16px;
+  border-bottom:1px solid var(--line);align-items:flex-start}
+.step:last-child{border-bottom:0}
+.step .mark{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;
+  font-size:11px;font-weight:700;color:#fff;background:var(--faint);margin-top:1px}
+.step.ok .mark{background:var(--ok)} .step.warn .mark{background:var(--warn)}
+.step.err .mark{background:var(--crit)}
+.step.run .mark{background:var(--brand);animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+.step .title{font-weight:600}
+.step .sub{font-size:12.5px;color:var(--dim);margin-top:2px}
+.step .ms{font-variant-numeric:tabular-nums;color:var(--faint);font-size:12px;white-space:nowrap}
+
+/* ---------- chat ---------- */
+#chatlog{max-height:420px;overflow-y:auto;padding-right:4px}
+.msg{margin-bottom:11px;padding:11px 13px;border-radius:12px;max-width:85%;
+  white-space:pre-wrap;font-size:13.5px}
+.msg.u{background:var(--brand);color:#fff;margin-left:auto;border-bottom-right-radius:4px}
+.msg.a{background:var(--surface2);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg .did{font-size:11px;color:var(--faint);margin-top:7px;padding-top:6px;
+  border-top:1px solid var(--line)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.chip{font-size:12px;padding:5px 10px;border-radius:99px;background:var(--surface2);
   border:1px solid var(--line);color:var(--dim);cursor:pointer}
-.chip:hover{border-color:var(--accent);color:var(--fg)}
-.stages{display:flex;flex-direction:column;gap:0;font-family:var(--mono);font-size:12px}
-.stage{display:grid;grid-template-columns:18px 1fr auto;gap:10px;padding:9px 16px;
-  border-bottom:1px solid var(--line);align-items:start}
-.stage:last-child{border-bottom:0}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--dim);margin-top:6px}
-.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn);
-  box-shadow:0 0 0 3px rgba(245,166,35,.15)} .dot.err{background:var(--err)}
-.dot.run{background:var(--accent);animation:p 1s infinite}
-@keyframes p{50%{opacity:.25}}
-.sname{color:var(--fg);font-weight:600}
-.sdetail{color:var(--dim);font-size:11px;word-break:break-word;margin-top:2px}
-.sms{color:var(--accent);font-variant-numeric:tabular-nums;font-size:11px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
-.kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px}
-.kpi .v{font-size:21px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-.kpi .l{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;margin-top:3px}
-.kpi.ok .v{color:var(--ok)} .kpi.acc .v{color:var(--accent)}
-.kpi.warn .v{color:var(--warn)} .kpi.pur .v{color:var(--purple)}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th{text-align:left;color:var(--dim);font-weight:600;font-size:10px;
-  text-transform:uppercase;letter-spacing:.07em;padding:7px 10px;border-bottom:1px solid var(--line)}
-td{padding:7px 10px;border-bottom:1px solid var(--line);font-family:var(--mono)}
-tr:last-child td{border-bottom:0}
-.best{color:var(--ok);font-weight:700}
-.tabs{display:flex;gap:4px;padding:10px 16px 0}
-.tab{padding:7px 13px;border-radius:8px 8px 0 0;font-size:12px;color:var(--dim);
-  cursor:pointer;border:1px solid transparent}
-.tab.on{background:var(--panel2);color:var(--fg);border-color:var(--line);border-bottom-color:var(--panel2)}
-.pane{display:none;padding:14px 16px} .pane.on{display:block}
-pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px;
-  overflow:auto;max-height:420px;font-family:var(--mono);font-size:11px;color:var(--dim);margin:0}
-.msg{margin-bottom:10px;padding:10px 12px;border-radius:10px;max-width:90%;white-space:pre-wrap;font-size:13px}
-.msg.u{background:var(--accent);color:#fff;margin-left:auto}
-.msg.a{background:var(--panel2);border:1px solid var(--line)}
-.msg .tools{font-family:var(--mono);font-size:10px;color:var(--purple);margin-top:6px}
-#chatlog{max-height:320px;overflow-y:auto;margin-bottom:10px}
-.bar{height:5px;background:var(--panel2);border-radius:3px;overflow:hidden;margin-top:5px}
-.bar i{display:block;height:100%;background:var(--accent)}
-.muted{color:var(--dim);font-size:12px}
-.err{color:var(--err)} .ok{color:var(--ok)} .warnc{color:var(--warn)}
-img.map{width:100%;border-radius:8px;border:1px solid var(--line);margin-top:10px}
-@media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+.chip:hover{border-color:var(--brand);color:var(--brand)}
+img.map{width:100%;max-width:620px;border-radius:8px;border:1px solid var(--line);margin-top:10px}
+pre{background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:12px;
+  overflow:auto;max-height:420px;font-family:var(--mono);font-size:11.5px;
+  color:var(--dim);margin:0}
+.bar{height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;min-width:60px}
+.bar i{display:block;height:100%;background:var(--brand)}
+.bar i.ok{background:var(--ok)} .bar i.warn{background:var(--warn)} .bar i.crit{background:var(--crit)}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--surface);
+  border:1px solid var(--line);border-left:3px solid var(--ok);border-radius:10px;
+  padding:13px 16px;box-shadow:0 8px 28px rgba(0,0,0,.14);max-width:380px;z-index:50;
+  font-size:13px;animation:slide .22s ease}
+.toast.err{border-left-color:var(--crit)}
+@keyframes slide{from{transform:translateY(10px);opacity:0}}
+@media(max-width:900px){
+  .shell{grid-template-columns:1fr}
+  nav{position:static;height:auto;flex-direction:row;overflow-x:auto}
+  .brand{border-bottom:0;border-right:1px solid var(--line);white-space:nowrap}
+  .navlist{display:flex;gap:4px;padding:8px} .navitem{white-space:nowrap}
+  .navfoot{display:none}
+  .view{padding:16px}
+}
 </style>
 </head>
 <body>
-<header>
-  <div class="logo">Chain<span>Mind</span></div>
-  <div class="tag">autonomous supply chain</div>
-  <div class="tag" id="capLlm">llm …</div>
-  <div class="tag" id="capMaps">maps …</div>
-  <div class="tag" id="capMcp">mcp …</div>
-  <div style="margin-left:auto" class="tag" id="conn">connecting…</div>
-</header>
+<div class="shell">
+  <nav>
+    <div class="brand">
+      <div class="name">Chain<i>Mind</i></div>
+      <div class="sub">Logistics Control</div>
+    </div>
+    <div class="navlist" id="nav">
+      <div class="navitem on" data-v="overview"><span class="ico">▦</span>Overview</div>
+      <div class="navitem" data-v="orders"><span class="ico">✚</span>New Order</div>
+      <div class="navitem" data-v="inventory"><span class="ico">▤</span>Inventory
+        <span class="badge zero" id="bInv">0</span></div>
+      <div class="navitem" data-v="shipments"><span class="ico">▸</span>Shipments</div>
+      <div class="navitem" data-v="transfers"><span class="ico">⇄</span>Stock Transfers</div>
+      <div class="navitem" data-v="exceptions"><span class="ico">!</span>Exceptions
+        <span class="badge zero" id="bExc">0</span></div>
+      <div class="navitem" data-v="assistant"><span class="ico">✦</span>Assistant</div>
+      <div class="navitem" data-v="system"><span class="ico">⚙</span>System</div>
+    </div>
+    <div class="navfoot">
+      <div id="pills"><span class="pill"><span class="dot"></span>connecting…</span></div>
+    </div>
+  </nav>
 
-<div class="wrap">
-  <div style="display:flex;flex-direction:column;gap:16px">
-    <div class="card">
-      <h2>Order intake <span class="muted" id="intakeHint">free text</span></h2>
-      <div class="body">
-        <textarea id="order" rows="3" placeholder="Describe an order in plain English…">2 laptops and 5 usb-c cables to Anna Nagar, Chennai — urgent, hospital procurement</textarea>
-        <div class="chips">
-          <div class="chip" data-o="2 laptops and 5 usb-c cables to Anna Nagar, Chennai — urgent, hospital procurement">Express · Chennai</div>
-          <div class="chip" data-o="Send 1 ergonomic chair and 2 monitors to Koramangala, Bengaluru. No rush.">Bulky · Bengaluru</div>
-          <div class="chip" data-o="URGENT: 10 vaccine kits to Apollo Hospital, Hyderabad. Cold chain required.">Cold chain</div>
-          <div class="chip" data-o="500 laptops to Mumbai tomorrow">Forces self-heal</div>
-          <div class="chip" data-o="3 t-shirts and 1 keyboard to Gandhipuram, Coimbatore">Darkstore</div>
+  <main>
+    <header class="top">
+      <div>
+        <h1 id="vTitle">Network Overview</h1>
+        <div class="desc" id="vDesc">Live status across all warehouses</div>
+      </div>
+      <div style="margin-left:auto" class="row">
+        <button class="ghost sm" id="refresh">Refresh</button>
+      </div>
+    </header>
+
+    <!-- OVERVIEW -->
+    <section class="view on" id="v-overview">
+      <div class="grid g4" id="ovKpis"></div>
+      <div class="grid g2" style="margin-top:16px">
+        <div class="card">
+          <h2>Warehouses</h2>
+          <div class="scroll"><table id="ovWh"><tbody></tbody></table></div>
         </div>
-        <div class="row">
-          <button id="run">Run pipeline</button>
-          <button class="ghost" id="runx3">Benchmark ×3</button>
-          <button class="ghost" id="reset">Clear</button>
+        <div class="card">
+          <h2>Recent activity</h2>
+          <div class="scroll" id="ovFeed"><div class="empty">Waiting for activity…</div></div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <h2>Ops copilot <span class="muted">conversational agent</span></h2>
-      <div class="body">
-        <div id="chatlog"><div class="msg a">Ask me anything about the network. I call the same tools the pipeline uses — I can check stock, quote routes, or ship an order outright.</div></div>
-        <input id="chatin" placeholder="e.g. which warehouse has vaccine kits?">
-        <div class="row"><button id="send">Send</button></div>
-      </div>
-    </div>
-  </div>
-
-  <div style="display:flex;flex-direction:column;gap:16px">
-    <div class="card">
-      <h2>Pipeline execution <span class="muted" id="totalMs"></span></h2>
-      <div class="stages" id="stages"><div class="stage"><div></div><div class="muted">Run an order to see the agent pipeline execute live.</div><div></div></div></div>
-    </div>
-
-    <div class="card">
-      <h2>Decision</h2>
-      <div class="body"><div class="grid" id="kpis"><div class="muted">No shipment yet.</div></div><div id="mapWrap"></div></div>
-    </div>
-
-    <div class="card">
-      <div class="tabs">
-        <div class="tab on" data-t="cand">Candidates</div>
-        <div class="tab" data-t="learn">Feedback loop</div>
-        <div class="tab" data-t="perf">Performance</div>
-        <div class="tab" data-t="raw">Raw trace</div>
-      </div>
-      <div class="pane on" id="p-cand"><div class="muted">Warehouses the planner compared will appear here.</div></div>
-      <div class="pane" id="p-learn">
-        <div class="row" style="margin:0 0 12px">
-          <button class="ghost" id="simDeliver">Simulate delivery outcome</button>
-          <button class="ghost" id="reflect">Run reflection agent</button>
+    <!-- NEW ORDER -->
+    <section class="view" id="v-orders">
+      <div class="grid g2">
+        <div>
+          <div class="card">
+            <h2>Place an order</h2>
+            <div class="body">
+              <div class="field">
+                <label class="fl">Order in plain English</label>
+                <textarea id="orderText" rows="3">2 laptops and 5 usb-c cables to Anna Nagar, Chennai — urgent, hospital procurement</textarea>
+              </div>
+              <div class="chips">
+                <div class="chip" data-o="2 laptops and 5 usb-c cables to Anna Nagar, Chennai — urgent, hospital procurement">Urgent · Chennai</div>
+                <div class="chip" data-o="Send 1 ergonomic chair and 2 monitors to Koramangala, Bengaluru. No rush.">Bulky · Bengaluru</div>
+                <div class="chip" data-o="URGENT: 10 vaccine kits to Apollo Hospital, Hyderabad. Cold chain required.">Cold chain</div>
+                <div class="chip" data-o="500 laptops to Bandra, Mumbai tomorrow">Stock shortfall</div>
+                <div class="chip" data-o="3 t-shirts and 1 keyboard to Gandhipuram, Coimbatore">Small · Coimbatore</div>
+              </div>
+              <div class="row mt">
+                <button class="btn" id="placeOrder">Place order</button>
+                <button class="ghost" id="clearOrder">Clear</button>
+              </div>
+            </div>
+          </div>
+          <div class="card" id="outcomeCard" style="display:none">
+            <h2>Outcome</h2>
+            <div class="body"><div class="grid g4" id="outcome"></div><div id="outcomeMap"></div></div>
+          </div>
         </div>
-        <div id="learnBody" class="muted">Dispatch an order, then record a delivery to close the loop.</div>
+        <div>
+          <div class="card">
+            <h2>Processing <span class="note" id="procTime"></span></h2>
+            <div class="steps" id="steps">
+              <div class="empty"><div class="big">▸</div>Place an order to watch it being handled.</div>
+            </div>
+          </div>
+          <div class="card" id="compareCard" style="display:none">
+            <h2>Options compared <span class="note">why this warehouse won</span></h2>
+            <div class="body" id="compare"></div>
+          </div>
+        </div>
       </div>
-      <div class="pane" id="p-perf"><div class="muted">Loading…</div></div>
-      <div class="pane" id="p-raw"><pre id="rawJson">{}</pre></div>
-    </div>
-  </div>
+    </section>
+
+    <!-- INVENTORY -->
+    <section class="view" id="v-inventory">
+      <div class="grid g4" id="invKpis"></div>
+      <div class="card" style="margin-top:16px">
+        <h2>Needs attention <span class="note">at or below reorder point</span></h2>
+        <div class="body row">
+          <button class="btn" id="runReplenish">Run auto-replenishment</button>
+          <button class="ghost" id="previewReplenish">Preview plan only</button>
+          <span class="faint" id="replenishNote"></span>
+        </div>
+        <div id="invLow"></div>
+      </div>
+      <div class="grid g2">
+        <div class="card">
+          <h2>Stock by location
+            <span class="note"><select id="invFilter" style="width:auto;padding:3px 8px;font-size:12px"></select></span>
+          </h2>
+          <div class="scroll"><table id="invGrid"><tbody></tbody></table></div>
+        </div>
+        <div class="card">
+          <h2>Goods inward <span class="note">supplier delivery</span></h2>
+          <div class="body">
+            <div class="field"><label class="fl">Warehouse</label><select id="grnWh"></select></div>
+            <div class="field"><label class="fl">SKU</label><select id="grnSku"></select></div>
+            <div class="field"><label class="fl">Quantity</label><input id="grnQty" type="number" value="50" min="1"></div>
+            <div class="field"><label class="fl">Reference</label><input id="grnRef" placeholder="PO-1001"></div>
+            <button class="btn" id="doReceive">Book goods in</button>
+            <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px">
+              <h3 style="font-size:13px;margin-bottom:9px">Recent receipts</h3>
+              <div id="receipts" class="faint">None yet.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SHIPMENTS -->
+    <section class="view" id="v-shipments">
+      <div class="grid g4" id="shipKpis"></div>
+      <div class="card" style="margin-top:16px">
+        <h2>Tracking board <span class="note">confirm a delivery to teach the system</span></h2>
+        <div class="scroll"><table id="shipTable"><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2>Carrier performance <span class="note">learned from real delivery times</span></h2>
+        <div class="body" id="carrierPerf"></div>
+      </div>
+    </section>
+
+    <!-- TRANSFERS -->
+    <section class="view" id="v-transfers">
+      <div class="card">
+        <h2>Stock movements between warehouses</h2>
+        <div class="scroll"><table id="trfTable"><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2>Move stock manually</h2>
+        <div class="body grid g4" style="align-items:end">
+          <div><label class="fl">From</label><select id="trfFrom"></select></div>
+          <div><label class="fl">To</label><select id="trfTo"></select></div>
+          <div><label class="fl">SKU</label><select id="trfSku"></select></div>
+          <div><label class="fl">Qty</label><input id="trfQty" type="number" value="10" min="1"></div>
+          <div><button class="btn" id="doTransfer">Dispatch transfer</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EXCEPTIONS -->
+    <section class="view" id="v-exceptions">
+      <div class="card">
+        <h2>Orders needing a human decision</h2>
+        <div id="excList"></div>
+      </div>
+    </section>
+
+    <!-- ASSISTANT -->
+    <section class="view" id="v-assistant">
+      <div class="card">
+        <h2>Operations assistant <span class="note">it can act, not just answer</span></h2>
+        <div class="body">
+          <div id="chatlog">
+            <div class="msg a">Ask me about stock, routes or orders — I can also place an order, move stock between warehouses, or confirm a delivery.</div>
+          </div>
+          <div class="chips">
+            <div class="chip" data-q="Which warehouses are running low on stock?">Low stock?</div>
+            <div class="chip" data-q="Which warehouse has vaccine kits and how many?">Vaccine kits</div>
+            <div class="chip" data-q="What have we learned about carrier reliability?">Carrier reliability</div>
+            <div class="chip" data-q="Ship 2 keyboards to Velachery, Chennai">Ship something</div>
+          </div>
+          <div class="row mt">
+            <input id="chatin" placeholder="Type a question or an instruction…" style="flex:1;min-width:220px">
+            <button class="btn" id="send">Send</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SYSTEM -->
+    <section class="view" id="v-system">
+      <div class="card">
+        <h2>Diagnostics <span class="note">for engineers, not operators</span></h2>
+        <div class="body">
+          <div class="grid g4" id="sysKpis"></div>
+          <div style="margin-top:16px" id="sysModels"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Stage latency</h2>
+        <div class="scroll"><table id="sysPerf"><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2>Last order trace <span class="note">raw</span></h2>
+        <div class="body"><pre id="rawJson">Run an order to populate.</pre></div>
+      </div>
+    </section>
+  </main>
 </div>
 
 <script>
 const $ = s => document.querySelector(s);
-const esc = s => String(s??"").replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
-let last = null, lastShip = null;
+const esc = s => String(s ?? "").replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+const money = n => "₹" + Number(n ?? 0).toLocaleString("en-IN", {maximumFractionDigits:0});
+const mins = n => n == null ? "—" : Math.round(n) + " min";
+const api = async (p, o) => { const r = await fetch(p, o); if(!r.ok) throw new Error((await r.text()).slice(0,180)); return r.json(); };
+const post = (p, b) => api(p, {method:"POST", headers:{"content-type":"application/json"}, body: b?JSON.stringify(b):undefined});
 
-// ---------- capabilities ----------
-fetch('/api/capabilities').then(r=>r.json()).then(c=>{
-  const live = c.llm === 'gemini';
-  $('#capLlm').textContent = 'llm: ' + (live ? (c.resolved_models?.planner||'gemini') : 'mock');
-  $('#capLlm').className = 'tag ' + (live?'live':'mock');
-  const m = c.google_apis||{};
-  const mapsLive = m.routes_v2 === true;
-  $('#capMaps').textContent = 'maps: ' + (mapsLive ? 'routes v2 live' : 'fallback');
-  $('#capMaps').className = 'tag ' + (mapsLive?'live':'mock');
-  $('#capMcp').textContent = 'mcp: ' + (c.mcp?.tools||0) + ' tools';
-  $('#capMcp').className = 'tag live';
-}).catch(()=>{});
+let LAST = null, NETWORK = null, SKUS = [];
 
-// ---------- live stream ----------
-const ev = new EventSource('/api/stream');
-ev.onopen = () => { $('#conn').textContent = 'live'; $('#conn').className='tag live'; };
-ev.onerror = () => { $('#conn').textContent = 'reconnecting'; $('#conn').className='tag mock'; };
-ev.addEventListener('stage', e => addStage(JSON.parse(e.data)));
+function toast(msg, bad){
+  const t = document.createElement("div");
+  t.className = "toast" + (bad ? " err" : "");
+  t.innerHTML = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 5200);
+}
 
-const STATE = s => /fail|reject|error|fatal|exhaust|blocked|none/i.test(s) ? 'err'
-  : /heal|investig|override|replay|needs/i.test(s) ? 'warn'
-  : /ok|accepted|recovered|pass|dispatch/i.test(s) ? 'ok' : 'run';
+/* ================= navigation ================= */
+const TITLES = {
+  overview:["Network Overview","Live status across all warehouses"],
+  orders:["New Order","Place an order and watch it handled end to end"],
+  inventory:["Inventory","Stock levels, reorder points and replenishment"],
+  shipments:["Shipments","Everything in transit and delivered"],
+  transfers:["Stock Transfers","Moving stock between warehouses"],
+  exceptions:["Exceptions","Orders the system could not complete on its own"],
+  assistant:["Operations Assistant","Ask questions or give instructions in plain English"],
+  system:["System","Technical diagnostics"],
+};
+document.querySelectorAll(".navitem").forEach(n => n.onclick = () => show(n.dataset.v));
+function show(v){
+  document.querySelectorAll(".navitem").forEach(x => x.classList.toggle("on", x.dataset.v === v));
+  document.querySelectorAll(".view").forEach(x => x.classList.remove("on"));
+  $("#v-" + v).classList.add("on");
+  $("#vTitle").textContent = TITLES[v][0];
+  $("#vDesc").textContent = TITLES[v][1];
+  ({inventory:loadInventory, shipments:loadShipments, transfers:loadTransfers,
+    exceptions:loadExceptions, system:loadSystem, overview:loadOverview}[v] || (()=>{}))();
+}
 
-function addStage(d){
-  const box = $('#stages');
-  if (box.dataset.fresh !== '1'){ box.innerHTML=''; box.dataset.fresh='1'; }
-  const det = Object.entries(d.detail||{})
-    .filter(([k,v]) => v!==null && v!=='' && !(Array.isArray(v)&&!v.length) && k!=='order_id')
-    .map(([k,v]) => `${k}=${typeof v==='object'?JSON.stringify(v):v}`).join('  ');
-  const el = document.createElement('div');
-  el.className='stage';
-  el.innerHTML = `<div class="dot ${STATE(d.status)}"></div>
-    <div><div class="sname">${esc(d.stage)} · <span style="color:var(--dim);font-weight:400">${esc(d.status)}</span></div>
-    ${det?`<div class="sdetail">${esc(det)}</div>`:''}</div>
-    <div class="sms">${d.elapsed_ms.toFixed(0)}ms</div>`;
+/* ================= capabilities ================= */
+async function loadCaps(){
+  try{
+    const c = await api("/api/capabilities");
+    const g = c.google_apis || {};
+    const p = [];
+    p.push(`<span class="pill ${c.llm==='gemini'?'live':'off'}"><span class="dot"></span>AI ${c.llm==='gemini'?'online':'offline'}</span>`);
+    p.push(`<span class="pill ${g.routes_v2?'live':'off'}"><span class="dot"></span>Maps ${g.routes_v2?'live':'estimated'}</span>`);
+    p.push(`<span class="pill live"><span class="dot"></span>${c.mcp?.tools||0} tools</span>`);
+    $("#pills").innerHTML = p.join("");
+  }catch(e){ $("#pills").innerHTML = '<span class="pill off"><span class="dot"></span>offline</span>'; }
+}
+
+/* ================= live feed ================= */
+const FRIENDLY = {
+  intake:["Order received", o => `${o.chars||""} characters of free text`],
+  triage:["Order understood", o => `${(o.lines||[]).map(l=>`${l.qty} × ${l.sku}`).join(", ")} → ${o.destination||""}`],
+  address_gate:["Address check", o => (o.missing||[]).join(", ")],
+  candidates:["Warehouses evaluated", o => o.count!=null ? `${o.count} able to ship the full order` : (o.unfulfillable||[]).join(", ")],
+  plan:["Warehouse & carrier chosen", o => o.rationale || ""],
+  heal:["Resolving a problem", o => o.explanation || o.failure || ""],
+  reserve:["Stock reserved", o => o.warehouse || ""],
+  packaging:["Packed", o => `${o.box||""}, ${o.weight_g||0} g${o.cold_chain?" · cold chain":""}${o.fragile?" · fragile":""}`],
+  qa_vision:["Parcel inspected", o => o.notes || ""],
+  dispatch:["Dispatched", o => `${o.carrier||""} · ETA ${Math.round(o.eta_minutes||0)} min`],
+  pipeline:["System error", o => o.detail || ""],
+};
+const stateOf = s => /fail|reject|error|fatal|exhaust|blocked|none|undeliver/i.test(s) ? "err"
+  : /heal|investig|override|replay|needs|escalat/i.test(s) ? "warn"
+  : /ok|accept|recover|pass|dispatch/i.test(s) ? "ok" : "run";
+
+let feedStarted = false;
+const ev = new EventSource("/api/stream");
+ev.addEventListener("stage", e => {
+  const d = JSON.parse(e.data);
+  addStep(d);
+  pushFeed(d);
+});
+ev.addEventListener("replenish", e => {
+  const d = JSON.parse(e.data);
+  pushFeed({stage:"transfer", status:"dispatched",
+            detail:{text:`${d.qty} × ${d.sku} ${d.from} → ${d.to}`}, elapsed_ms:0});
+});
+
+function addStep(d){
+  const box = $("#steps");
+  if(box.dataset.fresh !== "1"){ box.innerHTML = ""; box.dataset.fresh = "1"; }
+  const f = FRIENDLY[d.stage];
+  const title = f ? f[0] : d.stage;
+  let sub = "";
+  try{ sub = f ? (f[1](d.detail||{}) || "") : ""; }catch(_){}
+  if(d.status === "rejected_by_critic") sub = "Plan rejected on review — " + ((d.detail?.violations)||[]).join("; ");
+  const st = stateOf(d.status);
+  const el = document.createElement("div");
+  el.className = "step " + st;
+  el.innerHTML = `<div class="mark">${st==="ok"?"✓":st==="err"?"!":st==="warn"?"~":"•"}</div>
+    <div><div class="title">${esc(title)}</div>${sub?`<div class="sub">${esc(sub)}</div>`:""}</div>
+    <div class="ms">${(d.elapsed_ms||0).toFixed(0)} ms</div>`;
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
 }
 
-// ---------- run ----------
-async function run(text){
-  $('#run').disabled = true;
-  $('#stages').innerHTML=''; $('#stages').dataset.fresh='0';
-  $('#totalMs').textContent='running…';
-  const t0 = performance.now();
+const feed = [];
+function pushFeed(d){
+  const f = FRIENDLY[d.stage];
+  feed.unshift({t:new Date(), label:(f?f[0]:d.stage), status:d.status,
+                text:d.detail?.text || "", st:stateOf(d.status)});
+  if(feed.length > 40) feed.pop();
+  renderFeed();
+}
+function renderFeed(){
+  const el = $("#ovFeed");
+  if(!feed.length) return;
+  el.innerHTML = feed.slice(0,22).map(f => `
+    <div class="step ${f.st}" style="border-bottom:1px solid var(--line)">
+      <div class="mark">${f.st==="ok"?"✓":f.st==="err"?"!":f.st==="warn"?"~":"•"}</div>
+      <div><div class="title">${esc(f.label)}</div>
+        <div class="sub">${esc(f.text || f.status)}</div></div>
+      <div class="ms">${f.t.toLocaleTimeString()}</div>
+    </div>`).join("");
+}
+
+/* ================= overview ================= */
+async function loadOverview(){
   try{
-    const r = await fetch('/api/orders',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({text})});
-    const d = await r.json();
-    last = d; lastShip = d.shipment?.shipment_id || null;
-    render(d, performance.now()-t0);
-    return d;
-  } catch(e){ $('#totalMs').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
-  finally{ $('#run').disabled=false; }
+    const [net, inv, ship, exc] = await Promise.all([
+      api("/api/network"), api("/api/inventory"), api("/api/shipments"), api("/api/exceptions")
+    ]);
+    NETWORK = net;
+    SKUS = inv.sku_totals.map(s => s.sku);
+    const attention = inv.needs_attention.length;
+    const inTransit = ship.counts?.in_transit || 0;
+    const delivered = (ship.counts?.delivered || 0) + (ship.counts?.damaged || 0);
+    const units = net.warehouses.reduce((a,w) => a + w.available_units, 0);
+    $("#ovKpis").innerHTML = `
+      <div class="kpi brand"><div class="v">${net.orders}</div><div class="l">Orders handled</div></div>
+      <div class="kpi"><div class="v">${inTransit}</div><div class="l">In transit</div></div>
+      <div class="kpi ok"><div class="v">${delivered}</div><div class="l">Delivered</div></div>
+      <div class="kpi ${attention?'warn':'ok'}"><div class="v">${attention}</div><div class="l">Stock alerts</div></div>
+      <div class="kpi ${exc.count?'crit':''}"><div class="v">${exc.count}</div><div class="l">Exceptions</div></div>
+      <div class="kpi"><div class="v">${units.toLocaleString("en-IN")}</div><div class="l">Units on hand</div>
+        <div class="s">${net.warehouses.length} locations</div></div>`;
+    $("#ovWh").innerHTML = `<thead><tr><th>Location</th><th>Type</th><th class="num">Units</th></tr></thead><tbody>`
+      + net.warehouses.map(w => `<tr><td><b>${esc(w.city)}</b><div class="faint">${esc(w.name)}</div></td>
+        <td><span class="tag">${esc(w.kind)}</span></td>
+        <td class="num">${w.available_units.toLocaleString("en-IN")}</td></tr>`).join("") + `</tbody>`;
+    $("#bInv").textContent = attention; $("#bInv").classList.toggle("zero", !attention);
+    $("#bExc").textContent = exc.count; $("#bExc").classList.toggle("zero", !exc.count);
+    fillSelects();
+  }catch(e){ console.error(e); }
 }
 
-function render(d, wall){
-  $('#totalMs').innerHTML = `server ${d.total_ms.toFixed(0)}ms · wall ${wall.toFixed(0)}ms`
-    + (d.ok?'':` · <span class="err">${esc(d.error)}</span>`);
-  $('#rawJson').textContent = JSON.stringify(d,null,2);
+function fillSelects(){
+  if(!NETWORK) return;
+  const whOpts = NETWORK.warehouses.map(w => `<option value="${w.id}">${esc(w.city)} — ${esc(w.name)}</option>`).join("");
+  const skuOpts = SKUS.map(s => `<option value="${s}">${esc(s)}</option>`).join("");
+  ["#grnWh","#trfFrom","#trfTo"].forEach(id => { if($(id) && !$(id).innerHTML) $(id).innerHTML = whOpts; });
+  ["#grnSku","#trfSku"].forEach(id => { if($(id) && !$(id).innerHTML) $(id).innerHTML = skuOpts; });
+  if($("#trfTo") && $("#trfTo").selectedIndex === 0) $("#trfTo").selectedIndex = 1;
+  const f = $("#invFilter");
+  if(f && !f.innerHTML) f.innerHTML = `<option value="">All locations</option>` + whOpts;
+}
 
-  const s = d.shipment, k = $('#kpis');
-  if (s){
-    const ms = d.trace?.ms_by_kind||{};
-    k.innerHTML = `
-      <div class="kpi ok"><div class="v">${s.carrier}</div><div class="l">carrier</div></div>
-      <div class="kpi acc"><div class="v">${s.eta_minutes}m</div><div class="l">promised eta</div></div>
-      <div class="kpi"><div class="v">₹${s.cost_inr}</div><div class="l">total cost</div></div>
-      <div class="kpi"><div class="v">${s.route.distance_km}km</div><div class="l">${s.route.source.includes('google')?'google route':'fallback route'}</div></div>
-      <div class="kpi pur"><div class="v">${d.total_ms.toFixed(0)}ms</div><div class="l">end to end</div></div>
-      <div class="kpi"><div class="v">${(ms.agent||0).toFixed(0)}ms</div><div class="l">agent time</div></div>
-      <div class="kpi"><div class="v">${s.warehouse.id}</div><div class="l">${esc(s.warehouse.city)}</div></div>
-      <div class="kpi"><div class="v">${s.packaging.box}</div><div class="l">${s.packaging.gross_weight_g}g${s.packaging.cold_chain?' · cold':''}</div></div>`;
-    $('#mapWrap').innerHTML = s.route.static_map_url
-      ? `<img class="map" src="${s.route.static_map_url}" alt="route">` : '';
-  } else {
-    k.innerHTML = `<div class="err">${esc(d.error||'no shipment')}</div>`;
-    $('#mapWrap').innerHTML='';
+/* ================= orders ================= */
+async function placeOrder(){
+  const text = $("#orderText").value.trim();
+  if(!text) return;
+  $("#placeOrder").disabled = true;
+  $("#steps").innerHTML = ""; $("#steps").dataset.fresh = "0";
+  $("#procTime").textContent = "running…";
+  $("#outcomeCard").style.display = "none"; $("#compareCard").style.display = "none";
+  try{
+    const d = await post("/api/orders", {text});
+    LAST = d;
+    $("#procTime").textContent = `completed in ${(d.total_ms/1000).toFixed(1)} s`;
+    $("#rawJson").textContent = JSON.stringify(d, null, 2);
+    renderOutcome(d);
+    loadOverview();
+  }catch(e){
+    $("#procTime").textContent = "failed";
+    toast("Order failed: " + esc(e.message), true);
+  }finally{ $("#placeOrder").disabled = false; }
+}
+
+function renderOutcome(d){
+  const s = d.shipment;
+  $("#outcomeCard").style.display = "";
+  if(!s){
+    $("#outcome").innerHTML = `<div style="grid-column:1/-1">
+      <span class="tag crit">Not shipped</span>
+      <div style="margin-top:8px" class="muted">${esc(d.error||"")}</div>
+      ${(d.repairs||[]).length?`<div class="faint" style="margin-top:8px">The system tried:
+        ${d.repairs.map(r=>esc(r.strategy.replace(/_/g," "))).join(", ")}. ${esc(d.repairs.at(-1)?.explanation||"")}</div>`:""}
+      <div class="faint" style="margin-top:8px">Sent to Exceptions for a human decision.</div></div>`;
+    $("#outcomeMap").innerHTML = "";
+    return;
   }
+  $("#outcome").innerHTML = `
+    <div class="kpi ok"><div class="v" style="font-size:19px">${esc(s.carrier)}</div><div class="l">Carrier</div></div>
+    <div class="kpi brand"><div class="v">${Math.round(s.eta_minutes)}<span style="font-size:14px"> min</span></div><div class="l">Delivery ETA</div></div>
+    <div class="kpi"><div class="v">${money(s.cost_inr)}</div><div class="l">Total cost</div></div>
+    <div class="kpi"><div class="v">${Math.round(s.route.distance_km)}<span style="font-size:14px"> km</span></div><div class="l">Distance</div></div>
+    <div class="kpi"><div class="v" style="font-size:17px">${esc(s.warehouse.city)}</div><div class="l">Shipped from</div>
+      <div class="s">${esc(s.warehouse.kind)}</div></div>
+    <div class="kpi"><div class="v" style="font-size:17px">${esc(s.packaging.box)}</div><div class="l">Packaging</div>
+      <div class="s">${s.packaging.gross_weight_g} g${s.packaging.cold_chain?" · cold chain":""}</div></div>`;
+  $("#outcomeMap").innerHTML = s.route.static_map_url
+    ? `<img class="map" src="${s.route.static_map_url}" alt="delivery route">` : "";
 
-  if (d.plan) {
-    const p = d.plan;
-    $('#p-cand').innerHTML = `
-      <div class="muted" style="margin-bottom:10px"><b style="color:var(--fg)">Planner rationale:</b> ${esc(p.rationale||'')}
-      ${(p.applied_policies||[]).length?`<br><b style="color:var(--purple)">Applied learned policies:</b> ${esc(p.applied_policies.join(', '))}`:''}
-      ${(p.risk_flags||[]).length?`<br><b class="warnc">Risks:</b> ${esc(p.risk_flags.join(', '))}`:''}</div>
-      <table><tr><th>warehouse</th><th>distance</th><th>drive</th><th>carrier</th><th>eta</th><th>cost</th></tr>
-      ${(d.considered||[]).map(c=>`<tr${c.warehouse_id===s?.warehouse.id?' class="best"':''}>
-        <td>${c.warehouse_id}${c.warehouse_id===s?.warehouse.id?' ✓':''}</td><td>${c.distance_km}km</td>
-        <td>${c.drive_minutes}m</td><td>${c.best_carrier}</td><td>${c.eta_minutes}m</td>
-        <td>₹${c.cost_inr}</td></tr>`).join('')}</table>`;
+  if(d.considered?.length){
+    $("#compareCard").style.display = "";
+    const chosen = s.warehouse.id;
+    $("#compare").innerHTML = `
+      <div class="muted" style="margin-bottom:10px">${esc(d.plan?.rationale||"")}</div>
+      ${(d.plan?.applied_policies||[]).length?`<div class="faint" style="margin-bottom:10px">
+        Applied what we learned earlier: ${esc(d.plan.applied_policies.join(", "))}</div>`:""}
+      <table><thead><tr><th>Warehouse</th><th class="num">Distance</th><th class="num">ETA</th>
+        <th class="num">Cost</th><th>Carrier</th></tr></thead><tbody>
+      ${d.considered.map(c => `<tr>
+        <td>${c.warehouse_id===chosen?'<span class="tag ok">chosen</span> ':''}${esc(c.warehouse_id)}</td>
+        <td class="num">${Math.round(c.distance_km)} km</td>
+        <td class="num">${Math.round(c.eta_minutes)} min</td>
+        <td class="num">${money(c.cost_inr)}</td>
+        <td>${esc(c.best_carrier)}</td></tr>`).join("")}</tbody></table>`;
   }
-  if ((d.repairs||[]).length){
-    $('#p-cand').innerHTML += `<div style="margin-top:12px" class="muted">
-      <b class="warnc">Self-healing:</b> ${d.repairs.map(r=>`${esc(r.strategy)} — ${esc(r.explanation||'')}`).join('<br>')}</div>`;
-  }
-  loadPerf();
 }
 
-// ---------- tabs ----------
-document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
-  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
-  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
-  t.classList.add('on'); $('#p-'+t.dataset.t).classList.add('on');
-  if (t.dataset.t==='perf') loadPerf();
-  if (t.dataset.t==='learn') loadLearn();
-});
+/* ================= inventory ================= */
+async function loadInventory(){
+  const inv = await api("/api/inventory");
+  SKUS = inv.sku_totals.map(s => s.sku);
+  const st = inv.by_state || {};
+  $("#invKpis").innerHTML = `
+    <div class="kpi ok"><div class="v">${st.healthy||0}</div><div class="l">Healthy</div></div>
+    <div class="kpi warn"><div class="v">${st.low||0}</div><div class="l">Low stock</div></div>
+    <div class="kpi crit"><div class="v">${st.critical||0}</div><div class="l">Critical</div></div>
+    <div class="kpi crit"><div class="v">${st.out_of_stock||0}</div><div class="l">Out of stock</div></div>`;
 
-async function loadPerf(){
-  const m = await (await fetch('/api/metrics')).json();
-  const p = m.percentiles_ms||{};
-  const rows = Object.entries(p).sort((a,b)=>b[1].p50-a[1].p50);
-  const mx = Math.max(1,...rows.map(r=>r[1].p95));
-  $('#p-perf').innerHTML = `
-    <div class="grid" style="margin-bottom:12px">
-      <div class="kpi acc"><div class="v">${m.totals.orders}</div><div class="l">orders</div></div>
-      <div class="kpi ok"><div class="v">${m.totals.shipments}</div><div class="l">shipments</div></div>
-      <div class="kpi"><div class="v">${m.totals.delivered}</div><div class="l">delivered</div></div>
-      <div class="kpi pur"><div class="v">${m.totals.spans}</div><div class="l">traced spans</div></div>
-    </div>
-    <table><tr><th>span</th><th>p50</th><th>p95</th><th>p99</th><th style="width:28%">relative</th></tr>
-    ${rows.map(([n,v])=>`<tr><td>${esc(n)}</td><td>${v.p50}</td><td>${v.p95}</td><td>${v.p99}</td>
-      <td><div class="bar"><i style="width:${Math.min(100,v.p95/mx*100)}%"></i></div></td></tr>`).join('')}</table>
-    <div class="muted" style="margin-top:10px">Circuit breakers: ${
-      (m.breakers||[]).map(b=>`${esc(b.name)}=<span class="${b.state==='closed'?'ok':'err'}">${b.state}</span>`).join(' · ')||'none tripped'}</div>`;
+  const low = inv.needs_attention;
+  $("#invLow").innerHTML = low.length ? `<div class="scroll"><table>
+    <thead><tr><th>Location</th><th>SKU</th><th class="num">Available</th>
+      <th class="num">Reorder at</th><th class="num">Shortfall</th><th>Status</th></tr></thead><tbody>
+    ${low.map(i => `<tr><td>${esc(i.city)}<div class="faint">${esc(i.warehouse_id)}</div></td>
+      <td class="mono">${esc(i.sku)}</td><td class="num">${i.available}</td>
+      <td class="num">${i.reorder_point}</td><td class="num">${i.shortfall}</td>
+      <td><span class="tag ${i.state==='healthy'?'ok':i.state==='low'?'warn':'crit'}">${esc(i.state.replace(/_/g," "))}</span></td>
+    </tr>`).join("")}</tbody></table></div>`
+    : `<div class="empty"><div class="big">✓</div>Every location is above its reorder point.</div>`;
+
+  const f = $("#invFilter");
+  const sel = f?.value || "";
+  const items = sel ? inv.items.filter(i => i.warehouse_id === sel) : inv.items;
+  $("#invGrid").innerHTML = `<thead><tr><th>SKU</th><th>Location</th><th class="num">Available</th>
+    <th class="num">Reserved</th><th style="width:22%">Level</th></tr></thead><tbody>
+    ${items.map(i => {
+      const pctv = i.target_stock ? Math.min(100, i.available / i.target_stock * 100) : 100;
+      const cls = i.state==="healthy"?"ok":i.state==="low"?"warn":"crit";
+      return `<tr><td class="mono">${esc(i.sku)}</td>
+        <td>${esc(i.city)}</td><td class="num">${i.available}</td>
+        <td class="num">${i.reserved}</td>
+        <td><div class="bar"><i class="${cls}" style="width:${pctv}%"></i></div></td></tr>`;
+    }).join("")}</tbody>`;
+  fillSelects();
+  loadReceipts();
 }
 
-async function loadLearn(){
-  const f = await (await fetch('/api/feedback')).json();
-  const pol = Object.entries(f.active_policies||{});
-  $('#learnBody').innerHTML = `
-    <div class="grid" style="margin-bottom:12px">
-      <div class="kpi acc"><div class="v">${f.points.length}</div><div class="l">outcomes recorded</div></div>
-      <div class="kpi ${f.improving?'ok':''}"><div class="v">${f.mean_abs_error_pct??'—'}%</div><div class="l">mean eta error</div></div>
-      <div class="kpi"><div class="v">${f.first_3_mean_error_pct??'—'}%</div><div class="l">first 3</div></div>
-      <div class="kpi ${f.improving?'ok':'warn'}"><div class="v">${f.last_3_mean_error_pct??'—'}%</div><div class="l">last 3 ${f.improving?'↓':''}</div></div>
-    </div>
-    <table><tr><th>carrier</th><th>shipments</th><th>on time</th><th>learned eta bias</th><th>damage</th></tr>
-    ${(f.carrier_bias||[]).map(c=>`<tr><td>${c.carrier}</td><td>${c.shipments}</td>
-      <td>${c.shipments?Math.round(c.on_time/c.shipments*100)+'%':'—'}</td>
-      <td class="${c.eta_bias>1.05?'warnc':c.eta_bias<0.95?'ok':''}">${c.eta_bias.toFixed(3)}×</td>
-      <td>${(c.damage_rate*100).toFixed(0)}%</td></tr>`).join('')}</table>
-    <div style="margin-top:12px"><b style="font-size:12px;color:var(--purple)">LEARNED POLICIES (fed into every future plan)</b>
-    ${pol.length?pol.map(([k,v])=>`<div class="muted" style="margin-top:6px">
-      <span style="font-family:var(--mono);color:var(--accent)">${esc(k)}</span> — ${esc(v.value.rule||'')}
-      <span style="opacity:.6">(conf ${v.confidence.toFixed(2)}, n=${v.samples})</span></div>`).join('')
-      :'<div class="muted" style="margin-top:6px">None yet — record 2+ deliveries then run reflection.</div>'}</div>`;
+async function loadReceipts(){
+  try{
+    const r = await api("/api/receipts?limit=8");
+    $("#receipts").innerHTML = r.receipts.length ? r.receipts.map(x =>
+      `<div style="padding:5px 0;border-bottom:1px solid var(--line)">
+        <span class="tag ${x.source==='return'?'warn':'ok'}">${esc(x.source)}</span>
+        ${x.qty} × <span class="mono">${esc(x.sku)}</span> → ${esc(x.warehouse_id)}
+        ${x.reference?`<span class="faint"> ${esc(x.reference)}</span>`:""}</div>`).join("")
+      : "None yet.";
+  }catch(e){}
 }
 
-$('#simDeliver').onclick = async () => {
-  if (!lastShip) return alert('Dispatch an order first.');
-  const promised = last?.shipment?.eta_minutes || 60;
-  const actual = +(promised * (1.15 + Math.random()*0.5)).toFixed(1); // deliberately late
-  const r = await (await fetch('/api/deliveries',{method:'POST',
-    headers:{'content-type':'application/json'},
-    body:JSON.stringify({shipment_id:lastShip, actual_minutes:actual})})).json();
-  alert(`Delivery recorded.\npromised ${r.predicted_minutes}m, actual ${r.actual_minutes}m (${r.error_pct>0?'+':''}${r.error_pct}%)\n`
-    + `${r.carrier} ETA bias ${r.eta_bias.before} -> ${r.eta_bias.after}\nThis changes the next order's carrier choice.`);
-  loadLearn();
+async function runReplenish(execute){
+  const b = execute ? $("#runReplenish") : $("#previewReplenish");
+  const old = b.textContent; b.disabled = true; b.textContent = "Planning…";
+  try{
+    const r = await post(`/api/replenishment/run?execute=${execute}`);
+    const moved = r.transfers_executed || [];
+    const buy = r.purchase_suggestions || [];
+    $("#replenishNote").textContent = r.summary || "";
+    let msg = `<b>${execute ? "Replenishment complete" : "Plan preview"}</b><br>${esc(r.summary||"")}`;
+    if(moved.length) msg += `<br><br>` + moved.map(t =>
+      `• ${t.qty} × ${esc(t.sku)} ${esc(t.from_wh||t.from_warehouse)} → ${esc(t.to_wh||t.to_warehouse)}`).join("<br>");
+    if(buy.length) msg += `<br><br>Order from supplier:<br>` + buy.map(p =>
+      `• ${p.qty} × ${esc(p.sku)}`).join("<br>");
+    if(!moved.length && !buy.length) msg += "<br><br>No action needed.";
+    toast(msg);
+    loadInventory(); loadOverview();
+  }catch(e){ toast("Replenishment failed: " + esc(e.message), true); }
+  finally{ b.disabled = false; b.textContent = old; }
+}
+
+/* ================= shipments ================= */
+async function loadShipments(){
+  const [s, f] = await Promise.all([api("/api/shipments"), api("/api/feedback")]);
+  const c = s.counts || {};
+  const onTime = s.shipments.filter(x => x.on_time === true).length;
+  const done = s.shipments.filter(x => x.actual_minutes != null).length;
+  $("#shipKpis").innerHTML = `
+    <div class="kpi brand"><div class="v">${c.in_transit||0}</div><div class="l">In transit</div></div>
+    <div class="kpi ok"><div class="v">${c.delivered||0}</div><div class="l">Delivered</div></div>
+    <div class="kpi ${done&&onTime<done?'warn':'ok'}"><div class="v">${done?Math.round(onTime/done*100)+"%":"—"}</div>
+      <div class="l">On time</div><div class="s">${done} confirmed</div></div>
+    <div class="kpi"><div class="v">${money(s.shipments.reduce((a,x)=>a+x.cost_inr,0))}</div>
+      <div class="l">Shipping spend</div></div>`;
+
+  $("#shipTable").innerHTML = s.shipments.length ? `<thead><tr><th>Shipment</th><th>Destination</th>
+    <th>Carrier</th><th class="num">Distance</th><th class="num">ETA</th><th class="num">Actual</th>
+    <th>Status</th><th></th></tr></thead><tbody>
+    ${s.shipments.map(x => `<tr>
+      <td class="mono">${esc(x.shipment_id)}<div class="faint">${esc(x.warehouse_id)}${x.cold_chain?" · cold":""}</div></td>
+      <td>${esc((x.destination||"").slice(0,42))}${x.priority==="express"?' <span class="tag warn">express</span>':""}</td>
+      <td>${esc(x.carrier)}</td>
+      <td class="num">${Math.round(x.distance_km)} km</td>
+      <td class="num">${mins(x.eta_minutes)}</td>
+      <td class="num">${x.actual_minutes?mins(x.actual_minutes):"—"}</td>
+      <td><span class="tag ${x.status==="delivered"?"ok":x.status==="damaged"?"crit":"brand"}">${esc(x.status.replace(/_/g," "))}</span>
+        ${x.on_time===false?'<span class="tag warn">late</span>':""}</td>
+      <td>${x.actual_minutes==null?`<button class="ghost sm" onclick="confirmDelivery('${x.shipment_id}',${x.eta_minutes})">Confirm</button>`:""}</td>
+    </tr>`).join("")}</tbody>`
+    : `<div class="empty"><div class="big">▸</div>No shipments yet.</div>`;
+
+  const cb = f.carrier_bias || [];
+  $("#carrierPerf").innerHTML = `
+    <div class="muted" style="margin-bottom:10px">Confirming real delivery times makes future promises more accurate.
+      ${f.mean_abs_error_pct!=null?`Current average error: <b>${f.mean_abs_error_pct}%</b>.`:""}</div>
+    <table><thead><tr><th>Carrier</th><th class="num">Deliveries</th><th class="num">On time</th>
+      <th>Estimate accuracy</th></tr></thead><tbody>
+    ${cb.map(c => {
+      const off = Math.round((c.eta_bias - 1) * 100);
+      return `<tr><td>${esc(c.carrier)}</td><td class="num">${c.shipments}</td>
+        <td class="num">${c.shipments?Math.round(c.on_time/c.shipments*100)+"%":"—"}</td>
+        <td>${!c.shipments?'<span class="faint">no data yet</span>'
+          : off > 4 ? `<span class="tag warn">runs ${off}% late — ETAs padded</span>`
+          : off < -4 ? `<span class="tag ok">beats estimate by ${-off}%</span>`
+          : '<span class="tag ok">accurate</span>'}</td></tr>`;
+    }).join("")}</tbody></table>`;
+}
+
+window.confirmDelivery = async (id, eta) => {
+  const actual = prompt(`Actual delivery time in minutes for ${id}?\nPromised: ${Math.round(eta)} min`,
+                        Math.round(eta * 1.3));
+  if(!actual) return;
+  try{
+    const r = await post("/api/deliveries", {shipment_id:id, actual_minutes:parseFloat(actual)});
+    toast(`<b>Recorded.</b><br>Promised ${r.predicted_minutes} min, actual ${r.actual_minutes} min
+      (${r.error_pct>0?"+":""}${r.error_pct}%).<br>Future ${esc(r.carrier)} estimates adjusted automatically.`);
+    loadShipments();
+  }catch(e){ toast("Failed: " + esc(e.message), true); }
 };
-$('#reflect').onclick = async () => {
-  $('#reflect').disabled=true; $('#reflect').textContent='reflecting…';
-  const r = await (await fetch('/api/reflect',{method:'POST'})).json();
-  $('#reflect').disabled=false; $('#reflect').textContent='Run reflection agent';
-  alert(r.skipped ? r.skipped : `${r.policies_written?.length||0} policies written by ${r.model}\n\n${r.summary||''}`);
-  loadLearn();
+
+/* ================= transfers ================= */
+async function loadTransfers(){
+  const t = await api("/api/transfers");
+  $("#trfTable").innerHTML = t.transfers.length ? `<thead><tr><th>Transfer</th><th>Route</th><th>SKU</th>
+    <th class="num">Qty</th><th class="num">Distance</th><th class="num">Cost</th><th>Status</th><th></th></tr></thead><tbody>
+    ${t.transfers.map(x => `<tr>
+      <td class="mono">${esc(x.id)}<div class="faint">${esc(x.reason||"")}</div></td>
+      <td>${esc(x.from_wh)} → ${esc(x.to_wh)}</td>
+      <td class="mono">${esc(x.sku)}</td><td class="num">${x.qty}</td>
+      <td class="num">${Math.round(x.distance_km)} km</td><td class="num">${money(x.cost_inr)}</td>
+      <td><span class="tag ${x.status==="received"?"ok":"brand"}">${esc(x.status.replace(/_/g," "))}</span></td>
+      <td>${x.status==="in_transit"?`<button class="ghost sm" onclick="receiveTransfer('${x.id}')">Mark received</button>`:""}</td>
+    </tr>`).join("")}</tbody>`
+    : `<div class="empty"><div class="big">⇄</div>No stock movements yet. Run auto-replenishment from Inventory.</div>`;
+  fillSelects();
+}
+window.receiveTransfer = async id => {
+  try{
+    const r = await post(`/api/transfers/${id}/receive`);
+    toast(`<b>Received.</b><br>${r.qty} × ${esc(r.sku)} landed at ${esc(r.to_wh)}.`);
+    loadTransfers(); loadOverview();
+  }catch(e){ toast("Failed: " + esc(e.message), true); }
 };
 
-// ---------- chat ----------
+/* ================= exceptions ================= */
+async function loadExceptions(){
+  const e = await api("/api/exceptions");
+  $("#excList").innerHTML = e.exceptions.length ? e.exceptions.map(x => `
+    <div style="padding:14px 16px;border-bottom:1px solid var(--line)">
+      <div class="row" style="justify-content:space-between">
+        <div><span class="tag crit">${esc(x.status.replace(/_/g," "))}</span>
+          <span class="mono faint" style="margin-left:6px">${esc(x.order_id)}</span></div>
+        <div class="faint">${new Date(x.created_at*1000).toLocaleString()}</div>
+      </div>
+      <div style="margin-top:7px">“${esc(x.order_text)}”</div>
+      <div class="muted" style="margin-top:5px"><b>Why it stopped:</b> ${esc(x.reason)}</div>
+    </div>`).join("")
+    : `<div class="empty"><div class="big">✓</div>No exceptions. Everything has been handled automatically.</div>`;
+}
+
+/* ================= assistant ================= */
 async function send(){
-  const t = $('#chatin').value.trim(); if(!t) return;
-  $('#chatin').value=''; $('#send').disabled=true;
-  $('#chatlog').insertAdjacentHTML('beforeend', `<div class="msg u">${esc(t)}</div>`);
-  $('#chatlog').insertAdjacentHTML('beforeend', `<div class="msg a" id="thinking">…</div>`);
-  $('#chatlog').scrollTop = 1e9;
+  const t = $("#chatin").value.trim(); if(!t) return;
+  $("#chatin").value = ""; $("#send").disabled = true;
+  $("#chatlog").insertAdjacentHTML("beforeend", `<div class="msg u">${esc(t)}</div>`);
+  $("#chatlog").insertAdjacentHTML("beforeend", `<div class="msg a" id="thinking">Working on it…</div>`);
+  $("#chatlog").scrollTop = 1e9;
   try{
-    const r = await (await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({message:t})})).json();
-    const tools = (r.tool_calls||[]).map(c=>c.tool);
-    $('#thinking').outerHTML = `<div class="msg a">${esc(r.reply)}
-      ${tools.length?`<div class="tools">↳ called ${esc(tools.join(' → '))} · ${r.turns} turns · ${r.latency_ms}ms · ${esc(r.model)}</div>`:''}</div>`;
-  }catch(e){ $('#thinking').outerHTML = `<div class="msg a err">${esc(e.message)}</div>`; }
-  $('#send').disabled=false; $('#chatlog').scrollTop=1e9;
+    const r = await post("/api/chat", {message:t});
+    const acts = (r.tool_calls||[]).map(c => c.tool.replace(/_/g," "));
+    $("#thinking").outerHTML = `<div class="msg a">${esc(r.reply)}
+      ${acts.length?`<div class="did">Checked: ${esc([...new Set(acts)].join(" · "))}</div>`:""}</div>`;
+    loadOverview();
+  }catch(e){ $("#thinking").outerHTML = `<div class="msg a">Sorry — ${esc(e.message)}</div>`; }
+  $("#send").disabled = false; $("#chatlog").scrollTop = 1e9;
 }
-$('#send').onclick = send;
-$('#chatin').addEventListener('keydown', e => { if(e.key==='Enter') send(); });
 
-// ---------- controls ----------
-$('#run').onclick = () => run($('#order').value.trim());
-$('#reset').onclick = () => { $('#stages').innerHTML=''; $('#stages').dataset.fresh='0';
-  $('#kpis').innerHTML='<div class="muted">Cleared.</div>'; $('#mapWrap').innerHTML=''; };
-$('#runx3').onclick = async () => {
-  const b=$('#runx3'); b.disabled=true; const times=[];
-  for (let i=0;i<3;i++){ const d = await run($('#order').value.trim()); if(d) times.push(d.total_ms); }
-  b.disabled=false;
-  if(times.length) alert(`3 runs (ms): ${times.map(t=>t.toFixed(0)).join(', ')}\nbest ${Math.min(...times).toFixed(0)}ms · mean ${(times.reduce((a,c)=>a+c,0)/times.length).toFixed(0)}ms`);
+/* ================= system ================= */
+async function loadSystem(){
+  const [m, c] = await Promise.all([api("/api/metrics"), api("/api/capabilities")]);
+  $("#sysKpis").innerHTML = `
+    <div class="kpi brand"><div class="v">${m.totals.orders}</div><div class="l">Orders</div></div>
+    <div class="kpi"><div class="v">${m.totals.shipments}</div><div class="l">Shipments</div></div>
+    <div class="kpi"><div class="v">${m.totals.spans}</div><div class="l">Traced spans</div></div>
+    <div class="kpi ok"><div class="v">${(m.breakers||[]).filter(b=>b.state!=="closed").length}</div>
+      <div class="l">Tripped breakers</div></div>`;
+  const rm = c.resolved_models || {};
+  $("#sysModels").innerHTML = `
+    <h3 style="font-size:13px;margin-bottom:8px">Model routing</h3>
+    <table><thead><tr><th>Stage</th><th>Model</th></tr></thead><tbody>
+    ${Object.entries(rm).map(([k,v]) => `<tr><td>${esc(k)}</td><td class="mono">${esc(v)}</td></tr>`).join("")}
+    </tbody></table>
+    <div class="faint" style="margin-top:10px">Google APIs: ${esc(JSON.stringify(c.google_apis||{}))}</div>
+    ${Object.keys(c.model_pool_cooling||{}).length?`<div class="faint" style="margin-top:6px">
+      Rate-limited, cooling: ${esc(Object.keys(c.model_pool_cooling).join(", "))}</div>`:""}`;
+  const p = m.percentiles_ms || {};
+  const rows = Object.entries(p).sort((a,b) => b[1].p50 - a[1].p50);
+  const mx = Math.max(1, ...rows.map(r => r[1].p95));
+  $("#sysPerf").innerHTML = `<thead><tr><th>Span</th><th class="num">p50</th><th class="num">p95</th>
+    <th class="num">p99</th><th style="width:26%"></th></tr></thead><tbody>
+    ${rows.map(([n,v]) => `<tr><td class="mono">${esc(n)}</td><td class="num">${v.p50}</td>
+      <td class="num">${v.p95}</td><td class="num">${v.p99}</td>
+      <td><div class="bar"><i style="width:${Math.min(100,v.p95/mx*100)}%"></i></div></td></tr>`).join("")}
+    </tbody>`;
+}
+
+/* ================= wiring ================= */
+$("#placeOrder").onclick = placeOrder;
+$("#clearOrder").onclick = () => { $("#orderText").value = ""; };
+$("#send").onclick = send;
+$("#chatin").addEventListener("keydown", e => { if(e.key === "Enter") send(); });
+$("#refresh").onclick = () => { loadCaps(); loadOverview();
+  document.querySelector(".navitem.on") && show(document.querySelector(".navitem.on").dataset.v); };
+$("#runReplenish").onclick = () => runReplenish(true);
+$("#previewReplenish").onclick = () => runReplenish(false);
+$("#invFilter").onchange = loadInventory;
+document.querySelectorAll(".chip[data-o]").forEach(c => c.onclick = () => { $("#orderText").value = c.dataset.o; });
+document.querySelectorAll(".chip[data-q]").forEach(c => c.onclick = () => { $("#chatin").value = c.dataset.q; send(); });
+
+$("#doReceive").onclick = async () => {
+  const b = $("#doReceive"); b.disabled = true;
+  try{
+    const r = await post("/api/inventory/receive", {
+      warehouse_id:$("#grnWh").value, sku:$("#grnSku").value,
+      qty:parseInt($("#grnQty").value), source:"supplier", reference:$("#grnRef").value});
+    toast(`<b>Booked in.</b><br>${r.qty} × ${esc(r.sku)} at ${esc(r.warehouse_id)} — now ${r.available_now} available.`);
+    loadInventory(); loadOverview();
+  }catch(e){ toast("Failed: " + esc(e.message), true); }
+  finally{ b.disabled = false; }
 };
-document.querySelectorAll('.chip').forEach(c => c.onclick = () => { $('#order').value = c.dataset.o; });
-loadPerf();
+
+$("#doTransfer").onclick = async () => {
+  const b = $("#doTransfer"); b.disabled = true;
+  try{
+    // Manual transfer goes through the same validated path as the agent's.
+    const body = {from_warehouse:$("#trfFrom").value, to_warehouse:$("#trfTo").value,
+                  sku:$("#trfSku").value, qty:parseInt($("#trfQty").value)};
+    const resp = await fetch("/api/transfers/manual", {method:"POST",
+      headers:{"content-type":"application/json"}, body:JSON.stringify(body)});
+    const d = await resp.json();
+    if(!resp.ok || d.ok === false) throw new Error(d.detail || d.error || "transfer rejected");
+    toast(`<b>Transfer dispatched.</b><br>${d.qty} × ${esc(d.sku)} ${esc(d.from_wh)} → ${esc(d.to_wh)}.`);
+    loadTransfers(); loadInventory();
+  }catch(e){ toast("Transfer failed: " + esc(e.message), true); }
+  finally{ b.disabled = false; }
+};
+
+loadCaps(); loadOverview();
+setInterval(loadCaps, 60000);
 </script>
 </body>
 </html>
