@@ -38,6 +38,11 @@ except Exception:  # pragma: no cover
 
 _client: Any = None
 _resolved_models: dict[str, str] = {}
+# Every model that answered a real generateContent call at boot, in probe order.
+# A tier whose own preference chain is entirely dead spills into this set rather
+# than being pinned to a model we know does not work.
+_working_models: list[str] = []
+_tier_notes: dict[str, str] = {}
 
 
 def client() -> Any:
@@ -63,7 +68,8 @@ _FALLBACK_CHAINS = {
                "gemini-3.5-flash", "gemini-3.1-pro-preview"],
     "vision": ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash",
                "gemini-3-flash-preview"],
-    "chat": ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"],
+    "chat": ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash",
+             "gemini-3.8-flash", "gemini-3-flash-preview", "gemini-3.5-flash-lite"],
 }
 
 _PROBE_SCHEMA = {
@@ -108,7 +114,7 @@ async def resolve_models() -> dict[str, str]:
     whole resolution costs one round trip, not one per model) and assign each
     tier the first verified entry in its preference chain.
     """
-    global _resolved_models
+    global _resolved_models, _working_models
     s = get_settings()
     configured = s.models.as_dict()
     if not s.llm_live:
@@ -127,18 +133,39 @@ async def resolve_models() -> dict[str, str]:
     except Exception:
         working = set()
 
+    _working_models = [m for m in distinct if m in working]
+    _tier_notes.clear()
+
     out: dict[str, str] = {}
     for tier, chain in chains.items():
         pick = next((c for c in chain if c in working), None)
-        # Nothing verified (network down at boot): keep the configured name and
-        # let the per-call circuit breaker handle it rather than refusing to start.
+        if pick is None and _working_models:
+            # This tier's whole preference chain is dead for this key (404 for a
+            # model that does not exist, or 429 for one that is out of quota).
+            # Pinning it to the configured name anyway is how a judged capability
+            # ends up permanently "offline" while four other models answer fine,
+            # so spill the tier onto a model we just watched work.
+            pick = _working_models[0]
+            _tier_notes[tier] = (
+                f"preference chain unavailable ({', '.join(chain[:3])}); "
+                f"spilled to verified model {pick}"
+            )
+        # Nothing verified at all (network down at boot): keep the configured name
+        # and let the per-call circuit breaker handle it rather than refusing to start.
         out[tier] = pick or configured[tier]
+        if pick is None:
+            _tier_notes[tier] = "no model verified at boot; using configured name unchecked"
     _resolved_models = out
     return out
 
 
 def resolution_report() -> dict[str, Any]:
-    return {"resolved": dict(_resolved_models), "configured": get_settings().models.as_dict()}
+    return {
+        "resolved": dict(_resolved_models),
+        "configured": get_settings().models.as_dict(),
+        "verified_working": list(_working_models),
+        "tier_notes": dict(_tier_notes),
+    }
 
 
 def model_for(tier: str) -> str:
@@ -196,9 +223,19 @@ def _is_cool(model: str) -> bool:
 
 
 def candidates_for(tier: str) -> list[str]:
-    """Models to try for this tier, quota-available ones first."""
+    """Models to try for this tier, quota-available ones first.
+
+    The tier's own preference chain comes first, then every other model that was
+    verified working at boot. Without that tail, a tier whose chain is entirely
+    rate-limited has nowhere to go and degrades to its deterministic fallback
+    even though the key can still reach four other models.
+    """
     primary = model_for(tier)
-    chain = [primary] + [m for m in _FALLBACK_CHAINS.get(tier, []) if m != primary]
+    chain = (
+        [primary]
+        + [m for m in _FALLBACK_CHAINS.get(tier, []) if m != primary]
+        + list(_working_models)
+    )
     seen: list[str] = []
     for m in chain:
         if m not in seen:

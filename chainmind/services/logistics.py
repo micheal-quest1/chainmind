@@ -114,6 +114,57 @@ def find_fulfillment_candidates(lines: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def cap_lines_to_available(
+    lines: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
+    """Largest subset a SINGLE warehouse can actually ship, plus the backorder.
+
+    The honest answer to "500 laptops" is not "order rejected" and not "shipped":
+    it is "65 ship today from WH-BLR, 435 are backordered". This picks the
+    warehouse that maximises units shipped now, caps each line to that site's
+    real availability, and returns the remainder so it can be reported rather
+    than silently dropped.
+
+    Deterministic and index-only - no model call, microseconds.
+    """
+    db = get_db()
+    skus = [str(l["sku"]) for l in lines]
+    if not skus:
+        return [], [], None
+
+    placeholders = ",".join("?" * len(skus))
+    rows = db.query(
+        f"SELECT warehouse_id, sku, (on_hand - reserved) AS available FROM inventory"
+        f" WHERE sku IN ({placeholders}) AND (on_hand - reserved) > 0",
+        skus,
+    )
+    avail: dict[str, dict[str, int]] = {}
+    for r in rows:
+        avail.setdefault(r["warehouse_id"], {})[r["sku"]] = int(r["available"])
+    if not avail:
+        return [], [{"sku": l["sku"], "qty": int(l["qty"])} for l in lines], None
+
+    def shippable(wh: str) -> tuple[int, int]:
+        have = avail[wh]
+        units = sum(min(int(l["qty"]), have.get(str(l["sku"]), 0)) for l in lines)
+        covered = sum(1 for l in lines if have.get(str(l["sku"]), 0) > 0)
+        return units, covered
+
+    best_wh = max(avail, key=lambda w: shippable(w))
+    have = avail[best_wh]
+
+    capped: list[dict[str, Any]] = []
+    backorder: list[dict[str, Any]] = []
+    for l in lines:
+        sku, want = str(l["sku"]), int(l["qty"])
+        can = min(want, have.get(sku, 0))
+        if can > 0:
+            capped.append({"sku": sku, "qty": can})
+        if want - can > 0:
+            backorder.append({"sku": sku, "qty": want - can})
+    return capped, backorder, best_wh
+
+
 def reserve_stock(order_id: str, warehouse_id: str, lines: list[dict[str, Any]]) -> dict[str, Any]:
     """Atomically reserve stock. Either every line reserves, or none does.
 

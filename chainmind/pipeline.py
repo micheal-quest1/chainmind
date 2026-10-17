@@ -155,6 +155,26 @@ class Orchestrator:
             if addr is None:
                 addr = await maps.validate_address(order["destination"])
 
+        # ---- Intake gate: an order with no catalogue line is NOT fulfillable --
+        # Reached before any geo/stock work so nonsense input costs one LLM call
+        # and consumes nothing. Without this gate the keyword fallback used to
+        # substitute a default SKU and dispatch a real shipment for "asdkfj blah".
+        if not order.get("lines"):
+            self.emit("intake_gate", "rejected",
+                      unmatched_requests=order.get("unmatched_requests", []),
+                      reasoning=order.get("reasoning", ""), model=triage_res.model)
+            db.execute(
+                "UPDATE orders SET status='rejected_unparseable', updated_at=? WHERE id=?",
+                (time.time(), self.order_id),
+            )
+            return self._result(
+                ok=False,
+                error="no catalogue SKU could be identified in the request",
+                extra={"order": order,
+                       "unmatched_requests": order.get("unmatched_requests", []),
+                       "catalogue": crew.CATALOG_SKUS},
+            )
+
         order["destination_validated"] = addr.to_dict()
         self.emit(
             "triage", "ok",

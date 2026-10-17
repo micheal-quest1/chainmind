@@ -18,10 +18,55 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Literal
 
+import os
+
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 from chainmind.core.db import get_db
 from chainmind.services import logistics, maps
+
+
+def transport_security() -> TransportSecuritySettings:
+    """Host/origin policy for the streamable-HTTP transport.
+
+    The MCP SDK ships DNS-rebinding protection that validates the Host header
+    against an allow-list defaulting to localhost. Behind Cloud Run the Host is
+    the service's own generated domain, so an unconfigured server answers every
+    remote MCP request with "Invalid Host header" - which reads like a routing
+    bug and is not.
+
+    That protection exists to stop a malicious web page in a victim's browser
+    from reaching an MCP server bound to their loopback interface. This server
+    is a deliberately public, unauthenticated, read-mostly demo endpoint on a
+    domain Cloud Run generates, so that threat model does not apply and the
+    check only breaks legitimate clients. It is therefore off by default here.
+
+    Passed to `streamable_http_app(transport_security=...)`. Note that leaving
+    that argument as None does NOT mean 'no policy': the SDK auto-applies a
+    localhost-only allow-list, which is exactly what rejects the Cloud Run host.
+
+    Turn it back on for any deployment that is not a public demo:
+
+        MCP_ALLOWED_HOSTS=chainmind.example.com,api.example.com
+
+    which enables protection and permits exactly those hosts plus localhost.
+    """
+    raw = os.getenv("MCP_ALLOWED_HOSTS", "").strip()
+    if not raw or raw == "*":
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+    hosts = ["localhost", "localhost:8080", "127.0.0.1", "127.0.0.1:8080"]
+    origins = ["http://localhost:8080", "http://127.0.0.1:8080"]
+    for h in (x.strip() for x in raw.split(",") if x.strip()):
+        hosts.append(h)
+        origins.append(f"https://{h}")
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=hosts,
+        allowed_origins=origins,
+    )
+
 
 mcp = MCPServer(
     "chainmind-logistics",

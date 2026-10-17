@@ -41,9 +41,13 @@ _mcp_server = None
 _mcp_asgi = None
 try:
     from chainmind.mcp_server.server import build_server as _build_mcp
+    from chainmind.mcp_server.server import transport_security as _mcp_security
 
     _mcp_server = _build_mcp()
-    _mcp_asgi = _mcp_server.streamable_http_app()
+    # transport_security must be passed here: left as None the SDK installs a
+    # localhost-only Host allow-list, so every request to the deployed domain
+    # comes back as "Invalid Host header".
+    _mcp_asgi = _mcp_server.streamable_http_app(transport_security=_mcp_security())
 except Exception as _exc:  # MCP must never prevent the API from starting
     _mcp_import_error = str(_exc)
 

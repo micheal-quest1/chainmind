@@ -153,17 +153,19 @@ async def chat(message: str, *, session_id: str = "default") -> dict[str, Any]:
         tracer=tracer,
         span_name="agent.copilot",
         max_turns=4,   # each turn is an API call; free-tier budget is scarce
-        fallback_text=_offline_reply(message),
     )
+    # An unusable answer (no text, or a degraded run) falls back to the database
+    # view *with the real cause attached*, rather than a canned "offline" line.
+    reply = res.text if (res.text and not res.degraded) else _offline_reply(message, reason=res.note)
     _remember(session_id, "manager", message)
-    _remember(session_id, "copilot", res.text or "")
+    _remember(session_id, "copilot", reply)
 
     get_db().log_event("copilot", "turn", payload={
         "session": session_id, "tools": [c["tool"] for c in res.tool_calls],
         "turns": res.turns, "ms": round(res.latency_ms, 1),
     })
     return {
-        "reply": res.text or _offline_reply(message),
+        "reply": reply,
         "tool_calls": res.tool_calls,
         "turns": res.turns,
         "model": res.model,
@@ -175,14 +177,33 @@ async def chat(message: str, *, session_id: str = "default") -> dict[str, Any]:
     }
 
 
-def _offline_reply(message: str) -> str:
-    """Still useful with no LLM: answer from the database directly."""
+def _offline_reply(message: str, reason: str = "") -> str:
+    """Still useful with no LLM: answer from the database directly.
+
+    The reason is quoted verbatim. Claiming "the model is offline" when it is
+    actually rate-limited (or when no key is set) is the kind of thing that makes
+    a reviewer distrust every other status the system reports.
+    """
     snap = logistics.network_snapshot()
     lines = [f"{w['id']} {w['name']} ({w['city']}): {w['available_units']} units"
              for w in snap["warehouses"]]
+
+    from chainmind.core.config import get_settings
+
+    if not get_settings().llm_live:
+        cause = "no GEMINI_API_KEY is configured, so the conversational tier is disabled"
+    elif "RESOURCE_EXHAUSTED" in reason or "429" in reason:
+        cooling = llm.pool_report()
+        cause = ("the conversational model is rate-limited (HTTP 429, free-tier quota). "
+                 f"Models cooling: {cooling or 'none'}. The autonomous pipeline is "
+                 "unaffected - it runs on separate model tiers")
+    elif reason:
+        cause = f"the conversational tier failed: {reason[:200]}"
+    else:
+        cause = "the conversational tier returned no text"
+
     return (
-        "Conversational model is offline, so here is the live network straight from the "
-        "database:\n" + "\n".join(lines) +
-        f"\n\nOrders: {snap['orders']}, shipments: {snap['shipments']}. "
-        "Set GEMINI_API_KEY to enable the full copilot."
+        f"Answering from the database directly, because {cause}.\n\n"
+        "Live network:\n" + "\n".join(lines) +
+        f"\n\nOrders: {snap['orders']}, shipments: {snap['shipments']}."
     )

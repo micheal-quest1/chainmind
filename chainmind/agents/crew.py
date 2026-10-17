@@ -67,8 +67,9 @@ def _mock_triage(raw: str) -> dict[str, Any]:
                 qty = int(m.group(1)) if m else 1
                 lines.append({"sku": sku, "qty": max(1, min(qty, 500))})
                 break
-    if not lines:
-        lines = [{"sku": "SKU-CABLE-USBC", "qty": 1}]
+    # No match => NO lines. Inventing a default SKU here is how a nonsense order
+    # becomes a real shipment with real stock consumed, which is a false success.
+    unmatched = [] if lines else [raw.strip()[:120]]
 
     dest = "Chennai"
     m = re.search(r"\bto\s+([A-Za-z0-9,\.\-\s]{3,60})", raw, re.I)
@@ -83,9 +84,10 @@ def _mock_triage(raw: str) -> dict[str, Any]:
         "priority": "express" if (express or cold) else "standard",
         "cold_chain": cold,
         "customer_note": "",
-        "unmatched_requests": [],
-        "confidence": 0.62,
-        "reasoning": "Deterministic keyword intake (LLM offline).",
+        "unmatched_requests": unmatched,
+        "confidence": 0.62 if lines else 0.0,
+        "reasoning": "Deterministic keyword intake (LLM offline)."
+        if lines else "Deterministic keyword intake matched no catalogue SKU.",
     }
 
 
@@ -102,16 +104,28 @@ async def triage(raw_order: str, *, tracer: Tracer) -> tuple[dict[str, Any], llm
     data = res.data if isinstance(res.data, dict) else {}
     # Defence in depth: the schema guarantees shape, we still validate semantics.
     clean_lines = []
+    rejected_skus = []
     for ln in data.get("lines") or []:
         sku = str(ln.get("sku", "")).upper().strip()
         if sku in CATALOG_SKUS:
             clean_lines.append({"sku": sku, "qty": max(1, int(ln.get("qty") or 1))})
-    if not clean_lines:
+        elif sku:
+            rejected_skus.append(sku)      # hallucinated SKU - dropped, not shipped
+
+    if not clean_lines and res.degraded:
+        # The model was unreachable, so its silence is not evidence. Try keywords.
         data = _mock_triage(raw_order)
-        res.degraded = True
-        res.note = (res.note + " | LLM returned no valid SKU, fell back to keyword intake").strip(" |")
+        res.note = (res.note + " | LLM unreachable, fell back to keyword intake").strip(" |")
         clean_lines = data["lines"]
+
     data["lines"] = clean_lines
+    unmatched = list(data.get("unmatched_requests") or [])
+    unmatched += [f"invented SKU rejected: {s}" for s in rejected_skus]
+    if not clean_lines and not unmatched:
+        # A live model that matched nothing is a real answer: the request names no
+        # catalogue product. Say so instead of substituting a default item.
+        unmatched = [raw_order.strip()[:120]]
+    data["unmatched_requests"] = unmatched
     data.setdefault("destination", "Chennai")
     data.setdefault("priority", "standard")
     data["priority"] = data["priority"] if data["priority"] in ("standard", "express") else "standard"

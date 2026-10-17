@@ -391,11 +391,20 @@ curl -s -X POST http://localhost:8080/mcp \
        "clientInfo":{"name":"curl","version":"1"}}}'
 ```
 
-> **Mounting note.** A mounted ASGI sub-app does *not* get its lifespan run by the
-> parent, and `streamable_http_app()` returns `500 task group is not initialized` until
-> its session manager is running — so the FastAPI lifespan owns it explicitly. The
-> sub-app also defines its own `/mcp` route and mcp 2.3 exposes no setting to change it,
-> so it is mounted at `""` rather than `"/mcp"` to avoid serving at `/mcp/mcp`.
+> **Three gotchas when mounting MCP inside FastAPI**, each of which looks like a routing
+> bug and is not:
+>
+> 1. A mounted ASGI sub-app does **not** get its lifespan run by the parent, so
+>    `streamable_http_app()` returns `500 task group is not initialized` until its
+>    session manager is started. The FastAPI lifespan owns it explicitly.
+> 2. The sub-app defines its own `/mcp` route and mcp 2.3 exposes no setting to change
+>    it, so it is mounted at `""` rather than `"/mcp"` — otherwise it serves at
+>    `/mcp/mcp`.
+> 3. Leaving `transport_security=None` does **not** mean "no policy": the SDK
+>    auto-applies a **localhost-only** Host allow-list, so every request to the deployed
+>    domain returns `Invalid Host header`. It is passed explicitly. Set
+>    `MCP_ALLOWED_HOSTS=host1,host2` to re-enable DNS-rebinding protection for a
+>    non-public deployment.
 
 **Tools:** `network_status`, `search_inventory`, `check_fulfillment`, `order_status`,
 `compute_route`, `validate_address`, `optimize_multidrop`, `plan_packaging`,
